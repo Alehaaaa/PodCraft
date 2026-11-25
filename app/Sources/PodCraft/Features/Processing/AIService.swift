@@ -919,13 +919,9 @@ enum Keychain {
 }
 
 extension GenerationOptions {
-    /// Greedy sampling. The argument is `sampling:` in the macOS 26 SDK (Xcode 26, used by GitHub Actions)
-    /// and `samplingMode:` in newer SDKs.
+    /// Deterministic output for classification-style prompts. The greedy-sampling argument is named `sampling:`
+    /// in some SDKs and `samplingMode:` in others, so this uses temperature 0, which every SDK accepts.
     static func greedy(maximumResponseTokens: Int) -> GenerationOptions {
-        #if compiler(>=6.3)
-        GenerationOptions(samplingMode: .greedy, maximumResponseTokens: maximumResponseTokens)
-        #else
-        GenerationOptions(sampling: .greedy, maximumResponseTokens: maximumResponseTokens)
-        #endif
+        GenerationOptions(temperature: 0, maximumResponseTokens: maximumResponseTokens)
     }
 }
