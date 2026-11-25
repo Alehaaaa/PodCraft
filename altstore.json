@@ -1,0 +1,24 @@
+{
+  "name": "PodCraft",
+  "subtitle": "A free podcast player for iPhone",
+  "description": "PodCraft for iOS, distributed through AltStore Classic, SideStore and LiveContainer.",
+  "iconURL": "https://raw.githubusercontent.com/Alehaaaa/PodCraft/main/altstore/icon.png",
+  "website": "https://github.com/Alehaaaa/PodCraft",
+  "featuredApps": [
+    "app.podcraft.ios"
+  ],
+  "apps": [
+    {
+      "name": "PodCraft",
+      "bundleIdentifier": "app.podcraft.ios",
+      "developerName": "Alehaaaa",
+      "subtitle": "Podcasts, on their own or with your Mac",
+      "localizedDescription": "Follow any podcast on your iPhone, or listen to the shows PodCraft on your Mac cleans of sponsors, with chapters and transcripts. Free sync keeps your shows, progress and settings the same on all your devices.",
+      "iconURL": "https://raw.githubusercontent.com/Alehaaaa/PodCraft/main/altstore/icon.png",
+      "tintColor": "00A99D",
+      "category": "entertainment",
+      "versions": []
+    }
+  ],
+  "news": []
+}

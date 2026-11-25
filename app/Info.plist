@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key><string>en</string>
+	<key>CFBundleDisplayName</key><string>PodCraft</string>
+	<key>CFBundleExecutable</key><string>PodCraft</string>
+	<key>CFBundleIconFile</key><string>AppIcon</string>
+	<key>CFBundleIconName</key><string>AppIcon</string>
+	<key>CFBundleIdentifier</key><string>app.podcraft.mac</string>
+	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+	<key>CFBundleName</key><string>PodCraft</string>
+	<key>CFBundlePackageType</key><string>APPL</string>
+	<key>CFBundleShortVersionString</key><string>1.0</string>
+	<key>CFBundleVersion</key><string>1</string>
+	<key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
+	<key>LSMinimumSystemVersion</key><string>26.0</string>
+	<key>NSHighResolutionCapable</key><true/>
+	<key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
+	<key>NSLocalNetworkUsageDescription</key><string>PodCraft hosts your feeds on your network so podcast apps can play them.</string>
+	<key>NSSpeechRecognitionUsageDescription</key><string>PodCraft transcribes episodes on this Mac to make chapters and find sponsors.</string>
+	<key>NSLocationUsageDescription</key><string>PodCraft uses your location only to pick your country’s podcast charts on the New page.</string>
+	<key>NSLocationWhenInUseUsageDescription</key><string>PodCraft uses your location only to pick your country’s podcast charts on the New page.</string>
+	<key>NSHumanReadableCopyright</key><string>PodCraft</string>
+</dict>
+</plist>

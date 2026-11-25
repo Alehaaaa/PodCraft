@@ -1,0 +1,14 @@
+# Thin launcher so Craft Anything's checks can build and start the app.
+# The app itself is native Swift/SwiftUI (Package.swift, Sources/PodCraft); `cargo build` compiles it
+# with `swift build` (see build.rs) and the `podcraft` binary starts it with the same arguments.
+[package]
+name = "podcraft"
+version = "1.0.0"
+edition = "2021"
+build = "build.rs"
+
+[[bin]]
+name = "podcraft"
+path = "launcher/main.rs"
+
+[dependencies]

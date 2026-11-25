@@ -1,0 +1,24 @@
+FFmpeg 8.0.1 — LGPLv2.1-or-later, independent command-line utilities.
+
+PodCraft distributes ffmpeg and ffprobe as separate helper processes, not as
+libraries linked into its own executable. FFmpeg is licensed by its authors
+under the GNU Lesser General Public License, version 2.1 or later.
+
+Exact corresponding unmodified source is INCLUDED with these notices as
+ffmpeg-8.0.1.tar.xz. You can also obtain it directly from FFmpeg upstream:
+  https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz
+  SHA-256: 05ee0b03119b45c0bdb4df654b96802e909e0a752f72e4fe3794f487229e5a41
+  Detached signature: https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz.asc
+  Official release key: https://ffmpeg.org/ffmpeg-devel.asc
+  Key fingerprint: FCF986EA15E6E293A5644F10B4322F04D67658D8
+
+To inspect, modify, and rebuild these executable tools, use the separately
+distributed, human-readable Tools/build-ffmpeg.sh script included with this
+notice. The exact FFmpeg configure invocation is in configure-command.sh.
+No third-party proprietary, GPL, or nonfree libraries were enabled.
+This build uses only macOS system libraries at runtime.
+
+The exact source archive is distributed alongside this document, offline,
+with its checksum, detached signature, and reproducible build instructions.
+FFmpeg copyright and license details: LICENSE.md, COPYING.LGPLv2.1,
+COPYING.LGPLv3. These apply to FFmpeg, not PodCraft's own application code.

@@ -1,0 +1,105 @@
+name: iOS IPA
+
+# Pushes to main: build the unsigned IPA and publish it to the AltStore
+# Classic feed (altstore/PodCraft-<version>-<build>.ipa + altstore.json) when
+# the version in app/iOS/VERSION is not published yet. Bump app/iOS/VERSION to release.
+on:
+  push:
+    branches: [main]
+    paths: ["app/iOS/**", "app/Resources/**", ".github/workflows/ios-ipa.yml"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish even if this version is already in the feed (as a new build)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the newest Xcode
+        run: |
+          XCODE="$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Build unsigned IPA
+        env:
+          PODCRAFT_UNSIGNED: "1"
+        run: |
+          set -o pipefail
+          if ! sh app/iOS/build-ios.sh ipa 2>&1 | tee build.log; then
+            echo "::group::Errors"
+            grep -E "error:" build.log | sort -u | head -300
+            echo "::endgroup::"
+            exit 1
+          fi
+
+      - name: Read version
+        id: version
+        run: |
+          python3 - >> "$GITHUB_OUTPUT" <<'PY'
+          import json
+          r = json.load(open("app/iOS/dist/PodCraft-release.json"))
+          print("version=" + r["version"])
+          print("build=" + r["build"])
+          print("min=" + r.get("minOSVersion", "26.0"))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PodCraft-${{ steps.version.outputs.version }}-${{ steps.version.outputs.build }}
+          path: app/iOS/dist/PodCraft.ipa
+
+      - name: Publish to the AltStore feed
+        if: github.ref == 'refs/heads/main'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD: ${{ steps.version.outputs.build }}
+          MIN_OS: ${{ steps.version.outputs.min }}
+          FORCE: ${{ github.event.inputs.publish == 'true' }}
+        run: |
+          if [ "$FORCE" != "true" ] && ls altstore/PodCraft-"${VERSION}"-*.ipa >/dev/null 2>&1; then
+            echo "PodCraft ${VERSION} is already published; bump app/iOS/VERSION to release again."
+            exit 0
+          fi
+          DEST="altstore/PodCraft-${VERSION}-${BUILD}.ipa"
+          cp app/iOS/dist/PodCraft.ipa "$DEST"
+          NOTES="$(git log -1 --format=%s)"
+          python3 - "$VERSION" "$BUILD" "$DEST" "$NOTES" "$MIN_OS" <<'PY'
+          import json, os, sys, datetime
+          version, build, dest, notes, min_os = sys.argv[1:6]
+          feed = json.load(open("altstore.json"))
+          app = next(a for a in feed["apps"] if a["bundleIdentifier"] == "app.podcraft.ios")
+          app["versions"] = [v for v in app["versions"]
+                             if not (v["version"] == version and v["buildVersion"] == build)]
+          app["versions"].insert(0, {
+              "version": version,
+              "buildVersion": build,
+              "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"),
+              "localizedDescription": notes,
+              "downloadURL": "https://raw.githubusercontent.com/${{ github.repository }}/main/" + dest,
+              "size": os.path.getsize(dest),
+              "minOSVersion": min_os,
+          })
+          with open("altstore.json", "w") as f:
+              json.dump(feed, f, indent=2, ensure_ascii=False)
+              f.write("\n")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f "$DEST" altstore.json
+          git commit -m "Publish PodCraft iOS ${VERSION} (${BUILD}) to the AltStore feed"
+          git pull --rebase
+          git push

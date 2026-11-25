@@ -1,0 +1,40 @@
+# Keep this repository focused on PodCraft source, build configuration and tests.
+# Other workspace files include agent transcripts, personal attachments and logs.
+/*
+!/.gitignore
+!/README.md
+!/altstore.json
+!/altstore/
+!/app/
+!/.github/
+
+# All generated builds, packaged applications, screenshots and diagnostics.
+**/.DS_Store
+**/.build/
+**/.build*/
+**/target/
+**/build/
+**/DerivedData/
+**/dist/
+**/xcuserdata/
+**/*.log
+**/*.ipa
+**/*.zip
+**/*.xcarchive
+**/*.dSYM/
+**/*.xcuserstate
+**/.env
+**/.env.*
+**/*.p12
+**/*.mobileprovision
+**/*.pem
+**/*.key
+
+# Published builds are added by the workflow with `git add -f`.
+/altstore/*.ipa
+
+/app/PodCraft.app/
+/app/shots/
+/app/Vendor/ffmpeg-source/
+/app/Run Broski Test.command
+/app/mechanics.json
