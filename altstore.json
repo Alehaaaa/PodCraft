@@ -17,7 +17,17 @@
       "iconURL": "https://raw.githubusercontent.com/Alehaaaa/PodCraft/main/altstore/icon.png",
       "tintColor": "00A99D",
       "category": "entertainment",
-      "versions": []
+      "versions": [
+        {
+          "version": "1.2",
+          "buildVersion": "202611251950",
+          "date": "2026-11-25",
+          "localizedDescription": "Fix CI builds: Store init order; FoundationModels sampling label across SDKs",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/PodCraft/main/altstore/PodCraft-1.2-202611251950.ipa",
+          "size": 6648537,
+          "minOSVersion": "26.0"
+        }
+      ]
     }
   ],
   "news": []
