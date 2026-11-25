@@ -11,10 +11,17 @@ FFMPEG_VENDOR="$(pwd)/Vendor/ffmpeg-arm64"
 FFMPEG_HELPERS="$FFMPEG_VENDOR/bin"
 FFMPEG_LICENSES="$FFMPEG_VENDOR/licenses"
 PREVIOUS_APP="$(pwd)/.build/PodCraft.previous.app"
-# Ad-hoc signing is suitable for local builds. For external distribution set
-# PODCRAFT_CODESIGN_IDENTITY to an installed Developer ID Application identity
-# and notarize the resulting app using Apple's notarytool before distribution.
-SIGN_IDENTITY="${PODCRAFT_CODESIGN_IDENTITY:--}"
+# Signing: PODCRAFT_SIGN_IDENTITY picks the identity ("" for ad-hoc). Without it, the one code-signing
+# identity installed on this Mac is used, or ad-hoc when there are none or several. For distribution use a
+# Developer ID Application identity and notarize the result with notarytool.
+if [ -n "${PODCRAFT_SIGN_IDENTITY+set}" ]; then
+  SIGN_IDENTITY="${PODCRAFT_SIGN_IDENTITY:--}"
+elif [ -n "${PODCRAFT_CODESIGN_IDENTITY:-}" ]; then
+  SIGN_IDENTITY="$PODCRAFT_CODESIGN_IDENTITY"
+else
+  IDENTITIES="$(security find-identity -v -p codesigning 2>/dev/null | awk '{print $2}' | grep -E '^[0-9A-F]{40}$' || true)"
+  if [ "$(printf '%s\n' "$IDENTITIES" | grep -c .)" = 1 ]; then SIGN_IDENTITY="$IDENTITIES"; else SIGN_IDENTITY="-"; fi
+fi
 sign_for_release() {
   if [ "$SIGN_IDENTITY" = "-" ]; then
     codesign --force --sign - "$1"
@@ -71,7 +78,7 @@ cp Resources/logo.png "$STAGED_APP/Contents/Resources/logo.png"
 cp "$FFMPEG_HELPERS/ffmpeg" "$FFMPEG_HELPERS/ffprobe" "$STAGED_APP/Contents/Helpers/"
 mkdir -p "$STAGED_APP/Contents/Resources/ThirdParty/FFmpeg"
 cp -R "$FFMPEG_LICENSES/." "$STAGED_APP/Contents/Resources/ThirdParty/FFmpeg/"
-# The latest iPhone build (sh iOS/build-ios.sh ipa), which the Mac hosts as an AltStore / LiveContainer source.
+# The latest iPhone build (iOS/build-ipa.sh), which the Mac hosts as an AltStore / LiveContainer source.
 if [ -f iOS/dist/PodCraft.ipa ] && [ -f iOS/dist/PodCraft-release.json ]; then
   mkdir -p "$STAGED_APP/Contents/Resources/iPhone"
   cp iOS/dist/PodCraft.ipa iOS/dist/PodCraft-release.json "$STAGED_APP/Contents/Resources/iPhone/"

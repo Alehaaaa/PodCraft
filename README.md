@@ -102,24 +102,26 @@ Requirements: an Apple Silicon Mac with **macOS 26** and **Xcode 26** or later.
 
 ### Mac app
 
-```sh
+```bash
 cd app
-./build-app.sh          # builds, bundles FFmpeg and signs → app/PodCraft.app
+cargo build             # builds the Swift app and packages app/PodCraft.app
+cargo run               # builds if needed, then opens it
 swift test              # backend regression tests
 ```
 
-`build-app.sh` bundles a static, LGPL-only FFmpeg/ffprobe from `app/Vendor/ffmpeg-arm64` and checks it against its checksums. To rebuild FFmpeg from the official source, run `app/Tools/build-ffmpeg.sh` once. For distribution, set `PODCRAFT_CODESIGN_IDENTITY` to a Developer ID identity and notarize the result.
+`cargo build` runs `build-app.sh`, which compiles the Swift package, bundles a static, LGPL-only FFmpeg/ffprobe from `app/Vendor/ffmpeg-arm64` (checked against its checksums), renders the Icon Composer icon, includes the latest iPhone IPA from `app/iOS/dist`, and signs the app. It signs with the one code-signing identity installed on your Mac, or ad-hoc when there are none or several; set `PODCRAFT_SIGN_IDENTITY` to choose (an empty value means ad-hoc). To rebuild FFmpeg from the official source, run `app/Tools/build-ffmpeg.sh` once.
 
 ### iPhone app
 
-```sh
+Open **`app/iOS/PodCraftPhone.xcodeproj`** in Xcode, pick the **PodCraftPhone** scheme and a simulator, and build. Or from the command line:
+
+```bash
 cd app/iOS
-sh build-ios.sh              # Simulator build
-sh build-ios.sh device       # compile check for a real iPhone
-sh build-ios.sh ipa          # release: dist/PodCraft.ipa + PodCraft-release.json
+./build-simulator.sh    # Debug build for the iPhone Simulator
+./build-ipa.sh          # unsigned release → dist/PodCraft.ipa + PodCraft-release.json
 ```
 
-`ipa` signs with your Apple ID when Xcode is signed in (set `DEVELOPMENT_TEAM` to choose the team). If Xcode isn't signed in, or `PODCRAFT_UNSIGNED=1` is set, it builds an unsigned `.ipa`. When you next run `build-app.sh`, the Mac app bundles the latest `.ipa` and serves it to your iPhone.
+The unsigned IPA is what AltStore, SideStore and LiveContainer install (they sign it themselves). With Xcode signing set up, `EXPORT_OPTIONS_PLIST=$PWD/ExportOptions.plist ./build-ipa.sh` archives and exports a signed IPA instead (`DEVELOPMENT_TEAM` picks the team). `build-ipa.sh` checks the IPA before replacing the last one. See [`app/iOS/README.md`](app/iOS/README.md).
 
 ## Releases & CI
 
@@ -160,10 +162,10 @@ PodCraft/
 │   │   │   ├── CloudSync.swift      encrypted multi-device sync
 │   │   │   └── SettingsViews.swift  welcome, settings, sync, add a show
 │   │   ├── PodCraftPhone.xcodeproj
-│   │   ├── build-ios.sh
+│   │   ├── build-simulator.sh, build-ipa.sh
 │   │   └── VERSION
-│   ├── build-app.sh             builds and packages PodCraft.app
-│   └── Cargo.toml, launcher/    optional thin launcher (`cargo run`)
+│   ├── Cargo.toml, launcher/    `cargo build` / `cargo run` for the Mac app
+│   └── build-app.sh             packages and signs PodCraft.app (run by cargo build)
 ├── altstore.json, altstore/     AltStore source and published IPAs
 ├── docs/                        architecture notes and README images
 └── .github/workflows/           CI

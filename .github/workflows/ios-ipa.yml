@@ -35,11 +35,9 @@ jobs:
           xcodebuild -version
 
       - name: Build unsigned IPA
-        env:
-          PODCRAFT_UNSIGNED: "1"
         run: |
           set -o pipefail
-          if ! sh app/iOS/build-ios.sh ipa 2>&1 | tee build.log; then
+          if ! app/iOS/build-ipa.sh 2>&1 | tee build.log; then
             echo "::group::Errors"
             grep -E "error:" build.log | sort -u | head -300
             echo "::endgroup::"

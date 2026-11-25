@@ -1,7 +1,7 @@
 name: macOS build check
 
 # Compile check and tests for the macOS app (the Swift package in app/).
-# Nothing is packaged or published: PodCraft.app is built locally with app/build-app.sh.
+# Nothing is packaged or published: PodCraft.app is built locally with `cargo build` in app/.
 on:
   push:
     branches: [main, "mac/**"]

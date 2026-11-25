@@ -8,7 +8,7 @@ import Foundation
 ///   GET /altstore/PodCraft.ipa  the app itself
 ///   GET /altstore/icon.png      its icon
 ///
-/// The .ipa comes from `sh iOS/build-ios.sh ipa`, bundled into the Mac app when it's packaged.
+/// The .ipa comes from `iOS/build-ipa.sh`, bundled into the Mac app when it's packaged (`cargo build`).
 enum IPhoneRelease {
     struct Info: Decodable {
         var version: String
@@ -106,7 +106,7 @@ enum IPhoneRelease {
     /// The page to open on the iPhone (scan its QR code in the Mac's Settings → iPhone).
     static func page(base: String) -> Data {
         let detail = info.map { "Version \(esc($0.version)) (\(esc($0.build))) · \(ByteCountFormatter.string(fromByteCount: Int64($0.size), countStyle: .file))" }
-            ?? "No iPhone build yet: run <code>sh iOS/build-ios.sh ipa</code>, then rebuild the Mac app."
+            ?? "No iPhone build yet: run <code>app/iOS/build-ipa.sh</code>, then rebuild the Mac app with <code>cargo build</code>."
         let buttons = info == nil ? "" : """
         <a class="b primary" href="\(esc(liveContainerURL(base: base)))">Install with LiveContainer</a>
         <a class="b" href="\(esc(addSourceURL(app: "sidestore", base: base)))">Add Source to SideStore</a>
