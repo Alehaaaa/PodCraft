@@ -1,6 +1,6 @@
 # PodCraft source organization
 
-The Swift package is rooted at `Sources/PodCraft` and grouped by ownership:
+The Swift package is rooted at `app/Sources/PodCraft` and grouped by ownership:
 
 - `App`: process entry point, window composition, root navigation, and app-wide toolbar.
 - `Core`: persistent models, shared mechanics, styling, and reusable views.
@@ -22,7 +22,7 @@ User data is stored under `Application Support/PodCraft`. The library migrates d
 
 ## Tests
 
-Backend regression tests live in `Tests/PodCraftTests`. Run them with:
+Backend regression tests live in `app/Tests/PodCraftTests`. Run them from `app/` with:
 
 ```sh
 swift test

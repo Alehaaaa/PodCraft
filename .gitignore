@@ -7,6 +7,7 @@
 !/altstore/
 !/app/
 !/.github/
+!/docs/
 
 # All generated builds, packaged applications, screenshots and diagnostics.
 **/.DS_Store
@@ -33,8 +34,10 @@
 # Published builds are added by the workflow with `git add -f`.
 /altstore/*.ipa
 
+# Local-only: the Craft Anything workspace, built app, screenshots and research notes.
+/.workspace/
 /app/PodCraft.app/
 /app/shots/
 /app/Vendor/ffmpeg-source/
-/app/Run Broski Test.command
+/app/MECHANICS.md
 /app/mechanics.json
