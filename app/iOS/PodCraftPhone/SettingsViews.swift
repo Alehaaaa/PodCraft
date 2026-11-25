@@ -257,12 +257,17 @@ struct SettingsView: View {
                     if let error = store.sync.error { Text(error).foregroundStyle(.orange) }
                 }
 
-                Section("Playback") {
+                Section {
                     Picker("Speed", selection: Binding(get: { store.rate }, set: { store.setRate($0) })) {
                         ForEach([0.8, 1.0, 1.1, 1.2, 1.3, 1.5, 1.75, 2.0] as [Float], id: \.self) { r in
                             Text(r == 1 ? "1×" : String(format: "%g×", r)).tag(r)
                         }
                     }
+                    Toggle("Skip Sponsors", isOn: Binding(get: { store.skipSponsors }, set: { store.skipSponsors = $0 }))
+                } header: {
+                    Text("Playback")
+                } footer: {
+                    Text("With Sync on, episodes PodCraft on your Mac has processed come with their transcript and chapters, and their sponsor reads are skipped — even when this iPhone streams them straight from the show.")
                 }
 
                 Section {

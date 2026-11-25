@@ -76,6 +76,21 @@ struct SyncDeviceDoc: Codable, Equatable {
     var subscriptions: [Subscription]
     var progress: [SyncProgress]
     var settings: SyncSettings?
+    /// Episodes this device has published extras for (transcript, chapters, sponsor spans), with when.
+    var extras: [String: Date]? = nil
+}
+
+/// What the Mac learned about an episode, for phones that stream it straight from the feed. All times are in the
+/// original recording's time. Stored in its own encrypted slot, fetched when the episode is played.
+struct SyncExtras: Codable, Equatable {
+    struct Chapter: Codable, Equatable { var start: Double; var title: String }
+    struct Line: Codable, Equatable { var start: Double; var end: Double; var text: String }
+    struct Span: Codable, Equatable { var start: Double; var end: Double }
+    var chapters: [Chapter]
+    var transcript: [Line]
+    /// Sponsor reads and other segments to skip.
+    var skips: [Span]
+    var updatedAt: Date
 }
 
 struct SyncChannel: Codable {
@@ -113,8 +128,12 @@ enum SyncBox {
         return d
     }
 
-    static func seal(_ channel: SyncChannel, code: String) throws -> String {
-        let json = try encoder.encode(channel)
+    static func extrasURL(for code: String, episode: String) -> URL {
+        store.appendingPathComponent(slot(for: code + "|extras|" + episode))
+    }
+
+    static func seal<T: Encodable>(_ value: T, code: String) throws -> String {
+        let json = try encoder.encode(value)
         let packed = try (json as NSData).compressed(using: .zlib) as Data
         guard let box = try AES.GCM.seal(packed, using: key(for: code)).combined else { throw CocoaError(.coderInvalidValue) }
         return prefix + box.base64EncodedString()
@@ -124,12 +143,17 @@ enum SyncBox {
     static func open(_ text: String, code: String) throws -> SyncChannel {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.isEmpty { return SyncChannel() }
+        return try open(SyncChannel.self, text, code: code)
+    }
+
+    static func open<T: Decodable>(_ type: T.Type, _ text: String, code: String) throws -> T {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.hasPrefix(prefix), let raw = Data(base64Encoded: String(text.dropFirst(prefix.count))) else {
             throw CocoaError(.coderReadCorrupt)
         }
         let packed = try AES.GCM.open(AES.GCM.SealedBox(combined: raw), using: key(for: code))
         let json = try (packed as NSData).decompressed(using: .zlib) as Data
-        return try decoder.decode(SyncChannel.self, from: json)
+        return try decoder.decode(T.self, from: json)
     }
 
     /// Sync codes: 16 letters and digits, shown in groups of four.

@@ -42,12 +42,12 @@ struct NowPlayingView: View {
     @Environment(Store.self) private var store
     @Environment(AudioPlayer.self) private var player
     @Environment(\.dismiss) private var dismiss
-    @State private var panel: Panel = .chapters
+    @State private var panel: Panel?
     @State private var transcript: [TranscriptLine]?
     @State private var scrubbing: Double?
 
     enum Panel: String, CaseIterable, Identifiable {
-        case chapters = "Chapters", transcript = "Transcript"
+        case chapters = "Chapters", transcript = "Transcript", notes = "Notes", upNext = "Up Next"
         var id: String { rawValue }
     }
 
@@ -55,28 +55,31 @@ struct NowPlayingView: View {
         if let e = player.episode {
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(spacing: 22) {
+                    VStack(spacing: 20) {
                         Capsule().fill(.secondary.opacity(0.5)).frame(width: 38, height: 5).padding(.top, 8)
                         picture(e)
                         titles(e)
+                        chapterBar
                         scrubber
                         transport
-                        extras
+                        controls(e)
                         panels(e, proxy: proxy)
                     }
                     .padding(.horizontal, 22)
                     .padding(.bottom, 40)
                 }
+                .scrollIndicators(.hidden)
             }
             .background(backdrop(e))
-            .task(id: e.id) {
+            .overlay(alignment: .top) { sponsorNotice }
+            .task(id: "\(e.id)|\(store.hasTranscript(e))") {
                 transcript = nil
-                if e.hasTranscript { transcript = await store.detail(for: e)?.transcript }
+                if store.hasTranscript(e) { transcript = await store.transcript(for: e) }
             }
         }
     }
 
-    // MARK: Parts
+    // MARK: Top
 
     @ViewBuilder
     private func picture(_ e: RemoteEpisode) -> some View {
@@ -85,22 +88,79 @@ struct NowPlayingView: View {
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         } else {
-            Artwork(url: e.artwork ?? store.show(e.showID)?.artwork, size: nil, radius: 20)
-                .frame(maxWidth: 320)
-                .scaleEffect(player.isPlaying ? 1 : 0.88)
-                .shadow(color: .black.opacity(0.3), radius: 24, y: 14)
+            Artwork(url: e.artwork ?? store.show(e.showID)?.artwork, size: nil, radius: 22)
+                .frame(maxWidth: 340)
+                .scaleEffect(player.isPlaying ? 1 : 0.9)
+                .shadow(color: .black.opacity(0.35), radius: 28, y: 16)
                 .animation(.spring(duration: 0.45, bounce: 0.3), value: player.isPlaying)
+                .padding(.top, 6)
         }
     }
 
     private func titles(_ e: RemoteEpisode) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(Fmt.date(e.published)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            Text(e.title).font(.title3.bold()).lineLimit(3)
-            Text(player.currentChapter?.title ?? store.show(e.showID)?.title ?? "")
-                .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(Fmt.date(e.published))
+                    if e.isOnMac || !store.skips(for: e).isEmpty {
+                        Label("Sponsors cut", systemImage: "scissors").labelStyle(.titleAndIcon)
+                            .foregroundStyle(Color.podTeal)
+                    }
+                }
+                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(e.title).font(.title3.bold()).lineLimit(3)
+                Text(store.show(e.showID)?.title ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            moreMenu(e)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func moreMenu(_ e: RemoteEpisode) -> some View {
+        Menu {
+            if store.isPlayed(e) {
+                Button("Mark as Unplayed", systemImage: "circle") { store.setPlayed(e, false) }
+            } else {
+                Button("Mark as Played", systemImage: "checkmark.circle") { store.setPlayed(e, true); player.pause() }
+            }
+            ShareLink(item: e.media, subject: Text(e.title)) { Label("Share Episode", systemImage: "square.and.arrow.up") }
+            if store.isStandalone || !store.skips(for: e).isEmpty {
+                Toggle(isOn: Binding(get: { store.skipSponsors }, set: { store.skipSponsors = $0 })) {
+                    Label("Skip Sponsors", systemImage: "scissors")
+                }
+            }
+            Divider()
+            Button("Close Player", systemImage: "chevron.down") { dismiss() }
+        } label: {
+            Image(systemName: "ellipsis").font(.title3.weight(.semibold))
+                .frame(width: 36, height: 36)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+        .foregroundStyle(.primary)
+        .accessibilityLabel("More")
+    }
+
+    /// The current chapter, with buttons to the one before and after.
+    @ViewBuilder
+    private var chapterBar: some View {
+        let chapters = player.chapters
+        if let current = player.currentChapter, let index = chapters.firstIndex(of: current) {
+            HStack(spacing: 10) {
+                Button { player.previousChapter() } label: { Image(systemName: "backward.end.fill") }
+                    .accessibilityLabel("Previous Chapter")
+                VStack(spacing: 1) {
+                    Text("CHAPTER \(index + 1) OF \(chapters.count)").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    Text(current.title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                }
+                .frame(maxWidth: .infinity)
+                Button { player.nextChapter() } label: { Image(systemName: "forward.end.fill") }
+                    .disabled(index == chapters.count - 1)
+                    .accessibilityLabel("Next Chapter")
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 14).padding(.vertical, 9)
+            .background(.ultraThinMaterial, in: Capsule())
+        }
     }
 
     private var scrubber: some View {
@@ -123,77 +183,124 @@ struct NowPlayingView: View {
 
     private var transport: some View {
         HStack {
-            Button { player.skip(-15) } label: { Image(systemName: "gobackward.15").font(.system(size: 30)) }
+            Button { player.skip(-15) } label: { Image(systemName: "gobackward.15").font(.system(size: 32)) }
                 .accessibilityLabel("Back 15 Seconds")
             Spacer()
             Button { player.togglePlay() } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 50))
+                    .font(.system(size: 40))
                     .contentTransition(.symbolEffect(.replace))
-                    .frame(width: 70, height: 70)
+                    .frame(width: 84, height: 84)
+                    .background(.ultraThinMaterial, in: Circle())
             }
             .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
             Spacer()
-            Button { player.skip(30) } label: { Image(systemName: "goforward.30").font(.system(size: 30)) }
+            Button { player.skip(30) } label: { Image(systemName: "goforward.30").font(.system(size: 32)) }
                 .accessibilityLabel("Forward 30 Seconds")
         }
         .foregroundStyle(.primary)
         .buttonStyle(.plain)
-        .padding(.horizontal, 30)
+        .padding(.horizontal, 26)
     }
 
-    private var extras: some View {
-        HStack {
+    /// Speed, sleep timer and output.
+    private func controls(_ e: RemoteEpisode) -> some View {
+        HStack(spacing: 10) {
             Menu {
-                ForEach([0.8, 1.0, 1.2, 1.5, 1.75, 2.0] as [Float], id: \.self) { r in
+                ForEach([0.8, 1.0, 1.1, 1.2, 1.3, 1.5, 1.75, 2.0] as [Float], id: \.self) { r in
                     Button { player.setRate(r) } label: {
                         if abs(player.rate - r) < 0.01 { Label(speed(r), systemImage: "checkmark") } else { Text(speed(r)) }
                     }
                 }
             } label: {
-                Text(speed(player.rate)).font(.callout.weight(.semibold).monospacedDigit())
-                    .frame(minWidth: 44, minHeight: 32)
+                pill(icon: "gauge.with.needle", text: speed(player.rate))
             }
+            .accessibilityLabel("Playback Speed")
+
+            Menu {
+                if player.sleepAt != nil || player.sleepAtChapterEnd {
+                    Button("Turn Off Timer", systemImage: "moon.zzz") { player.setSleepTimer(minutes: nil) }
+                    Divider()
+                }
+                ForEach([5, 15, 30, 45, 60], id: \.self) { m in
+                    Button("\(m) Minutes") { player.setSleepTimer(minutes: m) }
+                }
+                if !player.chapters.isEmpty {
+                    Button("End of Chapter") { player.sleepAtEndOfChapter() }
+                }
+            } label: {
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    pill(icon: player.sleepAt != nil || player.sleepAtChapterEnd ? "moon.fill" : "moon",
+                         text: player.sleepRemaining.map { Fmt.clock($0) } ?? (player.sleepAtChapterEnd ? "Chapter" : "Sleep"),
+                         active: player.sleepAt != nil || player.sleepAtChapterEnd)
+                }
+            }
+            .accessibilityLabel("Sleep Timer")
+
             Spacer()
-            RoutePicker().frame(width: 32, height: 32)
-            Spacer()
-            Button { dismiss() } label: { Image(systemName: "chevron.down").font(.title3).frame(width: 44, height: 32) }
-                .accessibilityLabel("Close Player")
+            RoutePicker()
+                .frame(width: 40, height: 40)
+                .background(.ultraThinMaterial, in: Circle())
         }
-        .foregroundStyle(.secondary)
-        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+    }
+
+    private func pill(icon: String, text: String, active: Bool = false) -> some View {
+        Label(text, systemImage: icon)
+            .font(.subheadline.weight(.semibold).monospacedDigit())
+            .foregroundStyle(active ? Color.podTeal : .primary)
+            .padding(.horizontal, 14).frame(height: 40)
+            .background(.ultraThinMaterial, in: Capsule())
     }
 
     private func speed(_ r: Float) -> String {
         r == Float(Int(r)) ? "\(Int(r))×" : String(format: "%g×", r)
     }
 
+    // MARK: Panels
+
+    private func available(_ e: RemoteEpisode) -> [Panel] {
+        var list: [Panel] = []
+        if !player.chapters.isEmpty { list.append(.chapters) }
+        if store.hasTranscript(e) { list.append(.transcript) }
+        if !Fmt.plain(e.summary).isEmpty { list.append(.notes) }
+        if !store.upNext(after: e).isEmpty { list.append(.upNext) }
+        return list
+    }
+
     @ViewBuilder
     private func panels(_ e: RemoteEpisode, proxy: ScrollViewProxy) -> some View {
-        if !e.chapters.isEmpty || e.hasTranscript {
-            VStack(alignment: .leading, spacing: 12) {
-                if !e.chapters.isEmpty && e.hasTranscript {
-                    Picker("Show", selection: $panel) {
-                        ForEach(Panel.allCases) { Text($0.rawValue).tag($0) }
+        let list = available(e)
+        if let first = list.first {
+            let shown = panel.flatMap { list.contains($0) ? $0 : nil } ?? first
+            VStack(alignment: .leading, spacing: 14) {
+                if list.count > 1 {
+                    Picker("Show", selection: Binding(get: { shown }, set: { panel = $0 })) {
+                        ForEach(list) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
                 }
-                if panel == .chapters && !e.chapters.isEmpty || !e.hasTranscript {
-                    chapterList(e)
-                } else {
-                    transcriptList(proxy: proxy)
+                switch shown {
+                case .chapters: chapterList
+                case .transcript: transcriptList(proxy: proxy)
+                case .notes: notes(e)
+                case .upNext: upNext(e)
                 }
             }
-            .padding(.top, 8)
+            .padding(16)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .padding(.top, 4)
         }
     }
 
-    private func chapterList(_ e: RemoteEpisode) -> some View {
+    private var chapterList: some View {
         VStack(spacing: 0) {
-            ForEach(e.chapters) { c in
+            ForEach(Array(player.chapters.enumerated()), id: \.element.id) { i, c in
                 let current = player.currentChapter == c
                 Button { player.seek(to: c.start) } label: {
-                    HStack {
+                    HStack(spacing: 12) {
+                        Text("\(i + 1)").font(.caption.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(current ? Color.podTeal : .secondary).frame(width: 22)
                         Text(c.title).font(current ? .body.weight(.semibold) : .body)
                             .foregroundStyle(current ? Color.podTeal : .primary)
                             .multilineTextAlignment(.leading)
@@ -204,7 +311,7 @@ struct NowPlayingView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                Divider()
+                if i < player.chapters.count - 1 { Divider() }
             }
         }
     }
@@ -234,13 +341,68 @@ struct NowPlayingView: View {
         }
     }
 
+    private func notes(_ e: RemoteEpisode) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text(Fmt.date(e.published))
+                Text("·")
+                Text(Fmt.remaining(e.duration))
+            }
+            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Text(Fmt.plain(e.summary)).font(.callout).textSelection(.enabled)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func upNext(_ e: RemoteEpisode) -> some View {
+        VStack(spacing: 0) {
+            let list = store.upNext(after: e)
+            ForEach(Array(list.enumerated()), id: \.element.id) { i, next in
+                Button { player.play(next) } label: {
+                    HStack(spacing: 12) {
+                        Artwork(url: next.artwork ?? store.show(next.showID)?.artwork, size: 48, radius: 8)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(Fmt.date(next.published)).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                            Text(next.title).font(.subheadline.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
+                        }
+                        Spacer()
+                        Text(Fmt.remaining(store.remaining(next))).font(.caption).foregroundStyle(.secondary)
+                        Image(systemName: "play.circle.fill").font(.title2).foregroundStyle(Color.podTeal)
+                    }
+                    .padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if i < list.count - 1 { Divider() }
+            }
+        }
+    }
+
+    // MARK: Around
+
+    @ViewBuilder
+    private var sponsorNotice: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            if let at = player.skippedSponsorAt, context.date.timeIntervalSince(at) < 3 {
+                Label("Skipped a sponsor read", systemImage: "scissors")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.top, 24)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(duration: 0.35), value: player.skippedSponsorAt)
+    }
+
     private func backdrop(_ e: RemoteEpisode) -> some View {
         ZStack {
             Color(.systemBackground)
             Artwork(url: e.artwork ?? store.show(e.showID)?.artwork, size: nil, radius: 0)
-                .scaleEffect(2.2)
-                .blur(radius: 80)
-                .opacity(0.45)
+                .scaleEffect(2.4)
+                .blur(radius: 70)
+                .opacity(0.55)
+            LinearGradient(colors: [.clear, Color(.systemBackground).opacity(0.35)], startPoint: .top, endPoint: .bottom)
         }
         .ignoresSafeArea()
     }

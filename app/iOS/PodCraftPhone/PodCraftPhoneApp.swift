@@ -629,29 +629,4 @@ struct SearchView: View {
     }
 }
 
-// MARK: - Artwork
-
-struct Artwork: View {
-    let url: URL?
-    var size: CGFloat?
-    var radius: CGFloat
-
-    var body: some View {
-        AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.2))) { phase in
-            switch phase {
-            case .success(let image): image.resizable().scaledToFill()
-            default:
-                ZStack {
-                    Color.podTeal.opacity(0.25)
-                    Image(systemName: "waveform").font(.title2).foregroundStyle(Color.podTeal)
-                }
-            }
-        }
-        .aspectRatio(1, contentMode: .fit)
-        .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(.primary.opacity(0.08)))
-    }
-}
-
 struct FindQuery: Identifiable { var text: String; var id: String { text } }

@@ -24,6 +24,10 @@ final class Store {
     @ObservationIgnored private var progressStamps: [String: Double]
     /// Shows followed in standalone mode (removed ones are kept a while as tombstones for Sync).
     private(set) var subscriptions: [Subscription]
+    /// Transcripts, chapters and sponsor spans from the Mac (through Sync) for episodes streamed from their feed.
+    private(set) var extras: [String: SyncExtras] = [:]
+    /// Skip the sponsor reads the Mac found, in episodes streamed from their feed.
+    var skipSponsors: Bool { didSet { defaults.set(skipSponsors, forKey: "skipSponsors") } }
     /// Playback speed, shared with other devices through Sync.
     private(set) var rate: Float
     @ObservationIgnored private var rateUpdatedAt: Date
@@ -65,6 +69,7 @@ final class Store {
         progressStamps = (defaults.dictionary(forKey: "progressStamps") as? [String: Double]) ?? [:]
         subscriptions = defaults.data(forKey: "subscriptions").flatMap { try? Self.decoder.decode([Subscription].self, from: $0) } ?? []
         rate = defaults.object(forKey: "rate") as? Float ?? 1
+        skipSponsors = defaults.object(forKey: "skipSponsors") as? Bool ?? true
         rateUpdatedAt = defaults.object(forKey: "rateUpdatedAt") as? Date ?? .distantPast
         if let m = defaults.string(forKey: "mode").flatMap(Mode.init(rawValue:)) {
             mode = m
@@ -278,6 +283,57 @@ final class Store {
             message = "Can’t reach \(macName). Make sure it’s awake with PodCraft open, and on the same network or Tailscale."
         }
         await sync.syncNow()
+    }
+
+    // MARK: Extras (captions, chapters, sponsor spans)
+
+    private static let extrasDir: URL = {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Extras")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    /// Loads an episode's extras: from memory, from the cache on the phone, or from Sync when the Mac has newer.
+    func loadExtras(for e: RemoteEpisode) async {
+        guard !e.isOnMac else { return }
+        let published = sync.availableExtras[e.id]
+        if let have = extras[e.id], published == nil || have.updatedAt >= published! { return }
+        let file = Self.extrasDir.appendingPathComponent(Hash.short(e.id, length: 32) + ".json")
+        if let data = try? Data(contentsOf: file), let cached = try? SyncBox.decoder.decode(SyncExtras.self, from: data),
+           published == nil || cached.updatedAt >= published! {
+            extras[e.id] = cached
+            return
+        }
+        guard let fresh = await sync.fetchExtras(e.id) else { return }
+        extras[e.id] = fresh
+        try? SyncBox.encoder.encode(fresh).write(to: file, options: .atomic)
+    }
+
+    func chapters(for e: RemoteEpisode) -> [RemoteChapter] {
+        if !e.chapters.isEmpty { return e.chapters }
+        return extras[e.id]?.chapters.map { RemoteChapter(start: $0.start, title: $0.title) } ?? []
+    }
+
+    func hasTranscript(_ e: RemoteEpisode) -> Bool { e.hasTranscript || !(extras[e.id]?.transcript.isEmpty ?? true) }
+
+    /// Sponsor spans to skip while playing, when that's on.
+    func skips(for e: RemoteEpisode) -> [SyncExtras.Span] {
+        skipSponsors ? (extras[e.id]?.skips ?? []) : []
+    }
+
+    func transcript(for e: RemoteEpisode) async -> [TranscriptLine]? {
+        if let lines = extras[e.id]?.transcript, !lines.isEmpty {
+            return lines.map { TranscriptLine(start: $0.start, end: $0.end, text: $0.text) }
+        }
+        return e.hasTranscript ? await detail(for: e)?.transcript : nil
+    }
+
+    /// More episodes of the same show after this one: newer first if any are unplayed, then older.
+    func upNext(after e: RemoteEpisode, limit: Int = 5) -> [RemoteEpisode] {
+        guard let episodes = show(e.showID)?.episodes, let i = episodes.firstIndex(where: { $0.id == e.id }) else { return [] }
+        let newer = episodes[..<i].reversed().filter { !isPlayed($0) }
+        let older = episodes[(i + 1)...].filter { !isPlayed($0) }
+        return Array((newer + older).prefix(limit))
     }
 
     func detail(for episode: RemoteEpisode) async -> EpisodeDetail? {

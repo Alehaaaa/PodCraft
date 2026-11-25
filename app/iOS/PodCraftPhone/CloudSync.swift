@@ -25,6 +25,8 @@ final class CloudSync {
     private(set) var syncing = false
     private(set) var lastSynced: Date?
     private(set) var error: String?
+    /// Episodes another device (the Mac) published extras for, and when.
+    @ObservationIgnored private(set) var availableExtras: [String: Date] = [:]
 
     var syncSubscriptions: Bool { didSet { defaults.set(syncSubscriptions, forKey: "sync.subscriptions"); syncSoon() } }
     var syncProgress: Bool { didSet { defaults.set(syncProgress, forKey: "sync.progress"); syncSoon() } }
@@ -119,6 +121,9 @@ final class CloudSync {
         do {
             var channel = try await read(code)
             let others = channel.devices.filter { $0.key != deviceID }.map(\.value)
+            availableExtras = others.reduce(into: [:]) { all, doc in
+                for (id, at) in doc.extras ?? [:] where at > (all[id] ?? .distantPast) { all[id] = at }
+            }
             var subscriptionsChanged = false
             if syncSubscriptions { subscriptionsChanged = store.merge(subscriptions: others.flatMap(\.subscriptions)) }
             if syncProgress { store.merge(progress: SyncMerge.newest(others.flatMap(\.progress))) }
@@ -137,6 +142,14 @@ final class CloudSync {
         } catch {
             self.error = Self.describe(error)
         }
+    }
+
+    /// The transcript, chapters and sponsor spans the Mac published for an episode, if any.
+    func fetchExtras(_ episodeID: String) async -> SyncExtras? {
+        guard let code, availableExtras[episodeID] != nil else { return nil }
+        guard let (data, response) = try? await session.data(for: URLRequest(url: SyncBox.extrasURL(for: code, episode: episodeID))),
+              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return try? SyncBox.open(SyncExtras.self, String(decoding: data, as: UTF8.self), code: code)
     }
 
     private func show(_ channel: SyncChannel) {

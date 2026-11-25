@@ -58,6 +58,8 @@ final class MacSync {
         var subscriptions: [String: Subscription] = [:]
         var progress: [String: Stamp] = [:]
         var rate: Stamp?
+        /// Extras published for episodes (transcript, chapters, sponsor spans), by sync id.
+        var extras: [String: Stamp]? = nil
     }
 
     private init() {
@@ -166,13 +168,16 @@ final class MacSync {
                 library.save()
             }
 
+            await publishExtras(library, code: code)
+
             channel.devices[deviceID] = SyncDeviceDoc(
                 name: deviceName, platform: "mac", mode: "mac",
                 version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
                 savedAt: now,
                 subscriptions: subscriptions.values.sorted { $0.title < $1.title },
                 progress: progress,
-                settings: SyncSettings(rate: library.settings.defaultSpeed, updatedAt: state.rate?.at ?? .distantPast))
+                settings: SyncSettings(rate: library.settings.defaultSpeed, updatedAt: state.rate?.at ?? .distantPast),
+                extras: (state.extras ?? [:]).mapValues(\.at))
             try await write(channel, code: code)
             saveState()
             show(channel)
@@ -269,6 +274,44 @@ final class MacSync {
             out.append(SyncProgress(id: key, position: source, played: e.played, updatedAt: state.progress[key]!.at))
         }
         return Array(out.sorted { $0.updatedAt > $1.updatedAt }.prefix(2000))
+    }
+
+    /// Uploads the transcript, chapters and sponsor spans of recently processed episodes, so phones streaming
+    /// them from the feed get captions, chapters and sponsor skipping too. A few per sync, newest first.
+    private func publishExtras(_ library: Library, code: String) async {
+        var published = state.extras ?? [:]
+        let candidates = keyed(library)
+            .map { (episode: library.episodes[$0.index], key: $0.key) }
+            .filter { $0.episode.stage == .ready && (!$0.episode.transcript.isEmpty || !$0.episode.chapters.isEmpty || !$0.episode.cuts.isEmpty) }
+            .sorted { $0.episode.published > $1.episode.published }
+            .prefix(60)
+        var uploads = 0
+        for (e, key) in candidates where uploads < 8 {
+            let fp = "\(e.transcript.count)|\(e.chapters.count)|\(e.cuts.count)|\(e.analysisFingerprint ?? "")"
+            guard published[key]?.fingerprint != fp else { continue }
+            let adTitles = ["ad", "ads", "sponsor"]
+            let chapters = e.chapters.sorted { $0.start < $1.start }.filter { c in
+                let t = c.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return !adTitles.contains(t) && !t.hasPrefix("sponsor:") && !t.hasPrefix("advertisement")
+            }
+            let extras = SyncExtras(chapters: chapters.map { .init(start: $0.start, title: $0.title) },
+                                    transcript: e.transcript.map { .init(start: $0.start, end: $0.end, text: $0.text) },
+                                    skips: e.cuts.map { .init(start: $0.start, end: $0.end) },
+                                    updatedAt: Date())
+            do {
+                var request = URLRequest(url: SyncBox.extrasURL(for: code, episode: key))
+                request.httpMethod = "POST"
+                request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+                request.httpBody = Data(try SyncBox.seal(extras, code: code).utf8)
+                let (_, response) = try await session.data(for: request)
+                guard ((response as? HTTPURLResponse)?.statusCode ?? 0) < 300 else { break }
+                published[key] = .init(fingerprint: fp, at: extras.updatedAt)
+                uploads += 1
+            } catch { break }
+        }
+        // Only what's still on this Mac stays advertised.
+        let live = Set(keyed(library).map(\.key))
+        state.extras = published.filter { live.contains($0.key) }
     }
 
     private static func fingerprint(position: Double, played: Bool) -> String {

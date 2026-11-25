@@ -31,7 +31,27 @@ final class AudioPlayer {
         setUpRemoteCommands()
     }
 
-    var chapters: [RemoteChapter] { episode?.chapters ?? [] }
+    var chapters: [RemoteChapter] { episode.map { store?.chapters(for: $0) ?? $0.chapters } ?? [] }
+
+    /// Sleep timer: pauses at this time, or at the end of the current chapter.
+    private(set) var sleepAt: Date?
+    private(set) var sleepAtChapterEnd = false
+    /// Shown briefly after a sponsor read is skipped.
+    private(set) var skippedSponsorAt: Date?
+    /// A sponsor span the listener moved into on purpose plays through.
+    @ObservationIgnored private var allowedSpan: Double?
+
+    func setSleepTimer(minutes: Int?) {
+        sleepAtChapterEnd = false
+        sleepAt = minutes.map { Date().addingTimeInterval(Double($0) * 60) }
+    }
+
+    func sleepAtEndOfChapter() {
+        sleepAt = nil
+        sleepAtChapterEnd = true
+    }
+
+    var sleepRemaining: TimeInterval? { sleepAt.map { max(0, $0.timeIntervalSinceNow) } }
 
     var currentChapter: RemoteChapter? { chapters.last { $0.start <= position + 0.5 } }
 
@@ -61,6 +81,8 @@ final class AudioPlayer {
         isPlaying = true
         loadArtwork(for: e)
         updateNowPlaying()
+        allowedSpan = nil
+        Task { await store?.loadExtras(for: e) }
     }
 
     func togglePlay() { isPlaying ? pause() : resume() }
@@ -82,6 +104,9 @@ final class AudioPlayer {
 
     func seek(to seconds: Double) {
         let t = min(max(0, seconds), max(duration, 0))
+        if let e = episode {
+            allowedSpan = store?.skips(for: e).first { t >= $0.start && t < $0.end }?.start
+        }
         position = t
         player?.seek(to: CMTime(seconds: t, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         saveProgress(report: false)
@@ -116,6 +141,7 @@ final class AudioPlayer {
                 if let d = p.currentItem?.duration.seconds, d.isFinite, d > 0 { self.duration = d }
                 self.isBuffering = p.timeControlStatus == .waitingToPlayAtSpecifiedRate
                 self.saveProgress(report: Date().timeIntervalSince(self.lastReport) > 15)
+                self.checkSponsorsAndSleep()
             }
         }
         endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main) { [weak self] _ in
@@ -126,6 +152,26 @@ final class AudioPlayer {
                 self.store?.report(e)
                 self.updateNowPlaying()
             }
+        }
+    }
+
+    private func checkSponsorsAndSleep() {
+        guard isPlaying, let e = episode, let store else { return }
+        if let span = store.skips(for: e).first(where: { position >= $0.start && position < $0.end - 0.5 }),
+           span.start != allowedSpan {
+            let end = min(span.end, max(duration, span.end))
+            position = end
+            player?.seek(to: CMTime(seconds: end, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+            skippedSponsorAt = Date()
+            updateNowPlaying()
+        }
+        if let sleepAt, Date() >= sleepAt {
+            self.sleepAt = nil
+            pause()
+        } else if sleepAtChapterEnd, let current = currentChapter,
+                  let next = chapters.first(where: { $0.start > current.start }), position >= next.start - 0.6 {
+            sleepAtChapterEnd = false
+            pause()
         }
     }
 
@@ -169,8 +215,7 @@ final class AudioPlayer {
         artwork = nil
         guard let url = e.artwork ?? show?.artwork else { return }
         Task {
-            guard let (data, _) = try? await URLSession.shared.data(from: url), let image = UIImage(data: data),
-                  episode?.id == e.id else { return }
+            guard let image = await ImageCache.shared.image(for: url, pixels: 1200), episode?.id == e.id else { return }
             artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
             updateNowPlaying()
         }
