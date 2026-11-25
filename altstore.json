@@ -19,6 +19,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "1.4",
+          "buildVersion": "202611252031",
+          "date": "2026-11-25",
+          "localizedDescription": "iPhone: cached artwork, a fuller player, and captions, chapters and sponsor skips through Sync",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/PodCraft/main/altstore/PodCraft-1.4-202611252031.ipa",
+          "size": 6715550,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "1.3",
           "buildVersion": "202611252012",
           "date": "2026-11-25",
