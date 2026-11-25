@@ -56,6 +56,7 @@ final class Store {
     }()
 
     init() {
+        sync = CloudSync()
         server = defaults.string(forKey: "server") ?? ""
         code = defaults.string(forKey: "code") ?? ""
         macName = defaults.string(forKey: "macName") ?? "Mac"
@@ -70,7 +71,6 @@ final class Store {
         } else if !server.isEmpty && !code.isEmpty {
             mode = .companion   // phones set up before standalone mode existed
         }
-        sync = CloudSync()
         loadCache()
         sync.store = self
         // Screenshots and checks: PODCRAFT_SERVER / PODCRAFT_CODE connect without scanning.

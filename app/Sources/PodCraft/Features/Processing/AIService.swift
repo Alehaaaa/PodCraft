@@ -466,7 +466,7 @@ enum AIService {
                     """)
                 session.prewarm(promptPrefix: Prompt("Transcript excerpt"))
                 let response = try await session.respond(to: "Lines \(first)–\(last). The first \(overlap) lines may overlap the previous excerpt; report them only if they are a real boundary.\n\(text)",
-                                                         options: GenerationOptions(samplingMode: .greedy, maximumResponseTokens: 350))
+                                                         options: GenerationOptions.greedy(maximumResponseTokens: 350))
                 let generated = parseChapterText(response.content, window: window, blocks: bl,
                                                  findSponsors: findSponsors)
                 // Foundation Models can occasionally echo a classification for every input line.
@@ -530,7 +530,7 @@ enum AIService {
             """)
             do {
                 let r = try await session.respond(to: String(passage.prefix(2400)), generating: PassageTitle.self,
-                                                  options: GenerationOptions(samplingMode: .greedy, maximumResponseTokens: 30))
+                                                  options: GenerationOptions.greedy(maximumResponseTokens: 30))
             let t = sanitizeChapterTitle(r.content.title)
                 let words = t.split(separator: " ").count
                 if (1...8).contains(words), !t.lowercased().hasPrefix("chapter") { out[i].title = t }
@@ -915,5 +915,17 @@ enum Keychain {
         var out: CFTypeRef?
         guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let d = out as? Data else { return nil }
         return String(data: d, encoding: .utf8)
+    }
+}
+
+extension GenerationOptions {
+    /// Greedy sampling. The argument is `sampling:` in the macOS 26 SDK (Xcode 26, used by GitHub Actions)
+    /// and `samplingMode:` in newer SDKs.
+    static func greedy(maximumResponseTokens: Int) -> GenerationOptions {
+        #if compiler(>=6.3)
+        GenerationOptions(samplingMode: .greedy, maximumResponseTokens: maximumResponseTokens)
+        #else
+        GenerationOptions(sampling: .greedy, maximumResponseTokens: maximumResponseTokens)
+        #endif
     }
 }
