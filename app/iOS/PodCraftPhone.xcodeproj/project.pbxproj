@@ -18,6 +18,7 @@
 		A1000000000000000000B009 /* CloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F011 /* CloudSync.swift */; };
 		A1000000000000000000B00A /* Feeds.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F012 /* Feeds.swift */; };
 		A1000000000000000000B00B /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F013 /* SettingsViews.swift */; };
+		A1000000000000000000B00C /* SyncCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F014 /* SyncCore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +35,7 @@
 		A1000000000000000000F011 /* CloudSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSync.swift; sourceTree = "<group>"; };
 		A1000000000000000000F012 /* Feeds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Feeds.swift; sourceTree = "<group>"; };
 		A1000000000000000000F013 /* SettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViews.swift; sourceTree = "<group>"; };
+		A1000000000000000000F014 /* SyncCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SyncCore.swift; path = ../Sources/PodCraft/Sync/SyncCore.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -64,6 +66,7 @@
 				A1000000000000000000F004 /* AudioPlayer.swift */,
 				A1000000000000000000F005 /* NowPlayingView.swift */,
 				A1000000000000000000F010 /* Updater.swift */,
+				A1000000000000000000F014 /* SyncCore.swift */,
 				A1000000000000000000F013 /* SettingsViews.swift */,
 				A1000000000000000000F012 /* Feeds.swift */,
 				A1000000000000000000F011 /* CloudSync.swift */,
@@ -153,6 +156,7 @@
 				A1000000000000000000B004 /* AudioPlayer.swift in Sources */,
 				A1000000000000000000B005 /* NowPlayingView.swift in Sources */,
 				A1000000000000000000B008 /* Updater.swift in Sources */,
+				A1000000000000000000B00C /* SyncCore.swift in Sources */,
 				A1000000000000000000B00B /* SettingsViews.swift in Sources */,
 				A1000000000000000000B00A /* Feeds.swift in Sources */,
 				A1000000000000000000B009 /* CloudSync.swift in Sources */,

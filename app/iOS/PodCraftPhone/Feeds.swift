@@ -1,43 +1,4 @@
-import CryptoKit
 import Foundation
-
-/// Standalone PodCraft: the shows this phone follows itself, straight from their RSS feeds, with no Mac.
-/// Subscriptions are kept with the time they last changed (and a tombstone when removed) so Sync can
-/// merge them between any number of devices.
-struct Subscription: Codable, Hashable, Identifiable {
-    var id: String
-    var url: URL
-    var title: String
-    var author: String
-    var artwork: URL?
-    var updatedAt: Date
-    var removed: Bool
-
-    init(url: URL, title: String, author: String = "", artwork: URL? = nil, updatedAt: Date = Date(), removed: Bool = false) {
-        self.id = Self.id(for: url)
-        self.url = url
-        self.title = title
-        self.author = author
-        self.artwork = artwork
-        self.updatedAt = updatedAt
-        self.removed = removed
-    }
-
-    /// The same feed gets the same id on every device: http/https, case and a trailing slash don't matter.
-    static func id(for url: URL) -> String {
-        var s = url.absoluteString.lowercased()
-        for scheme in ["https://", "http://", "feed://"] where s.hasPrefix(scheme) { s.removeFirst(scheme.count) }
-        while s.hasSuffix("/") { s.removeLast() }
-        return "rss-" + Hash.short(s)
-    }
-}
-
-enum Hash {
-    static func short(_ text: String, length: Int = 16) -> String {
-        let digest = SHA256.hash(data: Data(text.utf8))
-        return String(digest.map { String(format: "%02x", $0) }.joined().prefix(length))
-    }
-}
 
 // MARK: - Reading feeds
 
@@ -88,10 +49,11 @@ enum FeedReader {
         guard parser.sawChannel else { throw FeedError.notAFeed }
         let showArt = parser.channel.image.flatMap(URL.init(string:))
         let episodes: [RemoteEpisode] = parser.items.compactMap { item in
-            guard let media = item.enclosure.flatMap({ URL(string: $0.trimmingCharacters(in: .whitespaces)) }) else { return nil }
-            let key = item.guid.isEmpty ? media.absoluteString : item.guid
+            let raw = item.enclosure?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let media = raw.flatMap(URL.init(string:)),
+                  let episodeID = SyncIDs.episode(showID: id, guid: item.guid, media: raw) else { return nil }
             return RemoteEpisode(
-                id: id + "-" + Hash.short(key),
+                id: episodeID,
                 showID: id,
                 title: item.title.trimmingCharacters(in: .whitespacesAndNewlines),
                 summary: item.summary,

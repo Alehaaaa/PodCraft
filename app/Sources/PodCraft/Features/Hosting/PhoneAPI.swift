@@ -139,33 +139,34 @@ struct PhonePairingSection: View {
         let installPage = IPhoneRelease.pageURL(base: server)
         let release = IPhoneRelease.info
         Section {
-            HStack(alignment: .top, spacing: 22) {
+            HStack(alignment: .center, spacing: 18) {
                 qrCard(installPage, caption: "1. Install")
                 qrCard(link, caption: "2. Connect")
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("1. Scan Install with the iPhone’s camera and tap Install with LiveContainer (or add the source to SideStore or AltStore).")
-                    Text("2. Then scan Connect to open PodCraft connected to this Mac.")
-                    Text(release.map { "iPhone app \($0.version) (\($0.build)) · \($0.signed == true ? "signed" : "unsigned, signed by LiveContainer as it installs")" }
-                         ?? "No iPhone build in this copy: run sh iOS/build-ios.sh ipa, then rebuild the Mac app.")
+                    Text("Scan **Install** with the iPhone’s camera, then **Connect** to open PodCraft with this Mac’s library — cleaned episodes, chapters and transcripts.")
+                        .font(.callout)
+                    Text(release.map { "iPhone app \($0.version) (\($0.build))" } ?? "No iPhone build in this copy of PodCraft.")
                         .font(.caption).foregroundStyle(.secondary)
-                    Text(TailscaleInfo.shared.isConnected
-                         ? "Uses your Tailscale address, so it works away from home with Tailscale on the iPhone."
-                         : "Uses your local network. Turn on Tailscale on this Mac and your iPhone to listen from anywhere.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    HStack {
-                        Button("Copy Source Link") { copy(IPhoneRelease.sourceURL(base: server), "AltStore source link copied") }
-                        Button("Copy Connect Link") { copy(link, "iPhone link copied") }
-                        Button("New Code…") { confirmReset = true }
-                    }
-                    .controlSize(.small)
                 }
             }
             .padding(.vertical, 4)
-            if TailscaleInfo.shared.isConnected { serveRow }
+            DisclosureGroup("More") {
+                HStack {
+                    Button("Copy Install Link") { copy(IPhoneRelease.sourceURL(base: server), "AltStore source link copied") }
+                    Button("Copy Connect Link") { copy(link, "iPhone link copied") }
+                    Button("New Connect Code…") { confirmReset = true }
+                }
+                .controlSize(.small)
+                Text(TailscaleInfo.shared.isConnected
+                     ? "Links use your Tailscale address, so the iPhone can reach this Mac away from home with Tailscale on."
+                     : "Links use your local network. With Tailscale on this Mac and the iPhone, it works away from home too.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if TailscaleInfo.shared.isConnected { serveRow }
+            }
         } header: {
-            Text("iPhone")
+            Text("iPhone App with This Mac")
         } footer: {
-            Text("This Mac hosts PodCraft for iPhone as an AltStore source; the app’s Check for Updates looks there. The code lets your iPhone list your shows and play them from this Mac. Making a new code disconnects phones that used the old one.")
+            Text("Without the Mac nearby, the iPhone app can follow shows on its own; Sync keeps both in step.")
         }
         .task { TailscaleInfo.shared.refreshServe(port: library.settings.hostPort) }
         .confirmationDialog("Make a new code?", isPresented: $confirmReset) {
@@ -185,7 +186,7 @@ struct PhonePairingSection: View {
                 Image(nsImage: qr)
                     .interpolation(.none)
                     .resizable()
-                    .frame(width: 130, height: 130)
+                    .frame(width: 100, height: 100)
                     .padding(7)
                     .background(.white, in: RoundedRectangle(cornerRadius: 10))
             }

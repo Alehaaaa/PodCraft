@@ -379,7 +379,7 @@ struct SyncView: View {
                                 .foregroundStyle(Color.podTeal).frame(width: 26)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(peer.name + (peer.isThisDevice ? " (This Device)" : "")).font(.headline)
-                                Text("\(peer.mode == "companion" ? "With Mac" : "On its own") · \(peer.savedAt.formatted(.relative(presentation: .named)))")
+                                Text("\(peer.platform == "mac" ? "Mac" : peer.mode == "companion" ? "With Mac" : "On its own") · \(peer.savedAt.formatted(.relative(presentation: .named)))")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                         }

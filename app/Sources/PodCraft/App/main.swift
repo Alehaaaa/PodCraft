@@ -196,6 +196,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             player.restoreLastSession()
             // Warm the New page in the background so it opens with its shows already there.
             Task { @MainActor in await DiscoveryStore.shared.load() }
+            // PodCraft Sync (off until a sync code is set in Settings → iPhone & Sync).
+            MacSync.shared.nowPlaying = { [weak self] in self?.player.episodeID }
+            MacSync.shared.attach(library)
             // Check for new episodes every 30 minutes (autoSyncIntervalMinutes in the original).
             syncTimer = Timer.scheduledTimer(withTimeInterval: Mechanics.checkIntervalMinutes * 60, repeats: true) { [weak self] _ in
                 Task { @MainActor [weak self] in
