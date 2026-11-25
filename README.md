@@ -43,6 +43,7 @@
 | 📝 **Transcripts** | Transcribes episodes locally with Apple's speech recognition. Search the transcript and jump to any line while you listen. |
 | 📺 **Video** | Optionally uses a show's official YouTube upload, but only after both the channel and the episode title and length match. |
 | 📡 **Your own feeds** | Group shows into channels and serve the cleaned episodes as private RSS feeds that any podcast app can subscribe to. |
+| 🔄 **Sync** | Joins the same [sync group](#sync) as your iPhones, so followed shows, progress and speed match everywhere. |
 | 📱 **iPhone hosting** | Serves its library to the iPhone app over your network or [Tailscale](https://tailscale.com), and hosts the iPhone build as an AltStore source. |
 
 <p align="center">
@@ -81,15 +82,16 @@ There's no prebuilt Mac download yet. Build it from source, as described [below]
 
 ## Sync
 
-Sync keeps **the shows you follow, where you are in every episode, and your playback speed** the same on any number of devices. Each device can use a different mode. It's free, needs no account, and doesn't depend on Tailscale.
+Sync keeps **the shows you follow, where you are in every episode, and your playback speed** the same on your Mac and any number of iPhones. Each device can use a different mode. It's free, needs no account, and doesn't depend on Tailscale.
 
-1. On one device, open **Settings → Sync → Start Syncing**.
+1. On one device, open **Settings → Sync → Start Syncing** (on the Mac: **Settings → iPhone & Sync**).
 2. On each other device, scan the QR code with the Camera app or type the 16-character code.
 
 How it works:
 
 - Each device keeps its own entry in one shared document. For every show and episode, the newest change wins, so devices that were offline merge cleanly when they reconnect.
 - The document is compressed and encrypted with **AES-GCM**, using a key derived from the sync code (HKDF-SHA256). It's stored in a free public text store ([textdb.dev](https://textdb.dev)) under a hashed name. The store only ever sees ciphertext, and nobody can find your document without the code.
+- Positions are exchanged in the original recording's time, so progress on the Mac's sponsor-cut episodes lines up with phones that stream the feed directly. Shows unfollowed on another device stay on the Mac with their downloads.
 - In **Settings → Sync** you can choose per device what it syncs, rename the device, see your other devices, or remove one.
 
 > Anyone with your sync code can read and change your listening data, so share it only with your own devices.
@@ -143,7 +145,9 @@ PodCraft/
 │   │   │   ├── Library/         Manage & Listen screens, show editing
 │   │   │   ├── Player/          playback, video, transcript, queue
 │   │   │   ├── Processing/      downloads, transcription, AI chapters, sponsor cuts
-│   │   │   └── Hosting/         HTTP/RSS server, iPhone API, AltStore source, Tailscale
+│   │   │   ├── Hosting/         HTTP/RSS server, iPhone API, AltStore source, Tailscale
+│   │   │   └── Settings/        the Settings pages
+│   │   ├── Sync/                SyncCore (shared with iPhone) and the Mac's sync service
 │   │   └── Diagnostics/         opt-in regression fixtures and stress tools
 │   ├── Tests/PodCraftTests/     backend regression tests
 │   ├── Resources/               Icon Composer icon and logo

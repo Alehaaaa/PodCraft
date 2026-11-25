@@ -6,7 +6,7 @@ name: iOS IPA
 on:
   push:
     branches: [main]
-    paths: ["app/iOS/**", "app/Resources/**", ".github/workflows/ios-ipa.yml"]
+    paths: ["app/iOS/**", "app/Resources/**", "app/Sources/PodCraft/Sync/SyncCore.swift", ".github/workflows/ios-ipa.yml"]
   workflow_dispatch:
     inputs:
       publish:
