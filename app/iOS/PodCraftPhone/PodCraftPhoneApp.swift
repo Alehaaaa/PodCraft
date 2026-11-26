@@ -11,6 +11,7 @@ struct PodCraftPhoneApp: App {
     @State private var store: Store
     @State private var player: AudioPlayer
     @State private var updater = Updater()
+    @State private var router = Router()
 
     init() {
         let s = Store()
@@ -25,9 +26,43 @@ struct PodCraftPhoneApp: App {
                 .environment(player)
                 .environment(updater)
                 .environment(Downloads.shared)
+                .environment(router)
                 .tint(.podTeal)
                 // The QR code in PodCraft's Settings on the Mac opens podcraft://connect?…
                 .onOpenURL { store.open($0) }
+        }
+    }
+}
+
+/// Which tab is open and what each tab has pushed, so the player and long-press menus can open a show.
+@MainActor
+@Observable
+final class Router {
+    /// PODCRAFT_TAB=browse opens on that tab (for screenshots).
+    var tab = ProcessInfo.processInfo.environment["PODCRAFT_TAB"] ?? "home"
+    var home = NavigationPath()
+    var browse = NavigationPath()
+    var search = NavigationPath()
+    /// The show last opened this way, so tapping it again doesn't stack a second copy.
+    @ObservationIgnored private var lastOpened: (tab: String, show: String, depth: Int)?
+
+    /// Shows a show's page on the tab that's open (closing the player first).
+    func open(_ show: RemoteShow, player: AudioPlayer) {
+        player.showNowPlaying = false
+        if let last = lastOpened, last.tab == tab, last.show == show.id, last.depth == depth { return }
+        switch tab {
+        case "browse": browse.append(show)
+        case "search": search.append(show)
+        default: tab = "home"; home.append(show)
+        }
+        lastOpened = (tab, show.id, depth)
+    }
+
+    private var depth: Int {
+        switch tab {
+        case "browse": browse.count
+        case "search": search.count
+        default: home.count
         }
     }
 }
@@ -36,15 +71,15 @@ struct RootView: View {
     @Environment(Store.self) private var store
     @Environment(AudioPlayer.self) private var player
     @Environment(Updater.self) private var updater
+    @Environment(Router.self) private var router
     @Environment(\.scenePhase) private var phase
-    /// PODCRAFT_TAB=browse opens on that tab (for screenshots).
-    @State private var tab = ProcessInfo.processInfo.environment["PODCRAFT_TAB"] ?? "home"
 
     var body: some View {
         @Bindable var p = player
+        @Bindable var r = router
         Group {
             if store.isReady {
-                TabView(selection: $tab) {
+                TabView(selection: $r.tab) {
                     Tab("Home", systemImage: "house", value: "home") { HomeView() }
                     Tab("Browse", systemImage: "square.grid.2x2", value: "browse") { BrowseView() }
                     Tab(value: "search", role: .search) { SearchView() }
@@ -77,9 +112,11 @@ struct RootView: View {
 
 struct HomeView: View {
     @Environment(Store.self) private var store
+    @Environment(Router.self) private var router
 
     var body: some View {
-        NavigationStack {
+        @Bindable var r = router
+        NavigationStack(path: $r.home) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
                     if let message = store.message { StatusBanner(text: message) }
@@ -114,11 +151,20 @@ struct HomeView: View {
                             }
                             .scrollClipDisabled()
                         }
-                        SectionTitle("Latest Episodes")
-                        LazyVStack(spacing: 0) {
-                            ForEach(store.latest.prefix(40)) { e in
-                                EpisodeRow(episode: e, showsShow: true)
-                                Divider().padding(.leading)
+                        HStack(alignment: .firstTextBaseline) {
+                            SectionTitle("Latest Episodes")
+                            Spacer()
+                            EpisodeFilterMenu(key: "latest").padding(.trailing)
+                        }
+                        let latest = store.apply("latest", to: store.latest)
+                        if latest.isEmpty {
+                            FilteredEmpty(key: "latest")
+                        } else {
+                            LazyVStack(spacing: 0) {
+                                ForEach(latest.prefix(40)) { e in
+                                    EpisodeRow(episode: e, showsShow: true)
+                                    Divider().padding(.leading)
+                                }
                             }
                         }
                     }
@@ -263,9 +309,11 @@ enum BrowseList: Hashable {
 struct BrowseView: View {
     @Environment(Store.self) private var store
     @Environment(Downloads.self) private var downloads
+    @Environment(Router.self) private var router
 
     var body: some View {
-        NavigationStack {
+        @Bindable var r = router
+        NavigationStack(path: $r.browse) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 30) {
                     if let message = store.message { StatusBanner(text: message) }
@@ -301,8 +349,10 @@ struct BrowseView: View {
                                 EpisodeStack(episodes: Array(downloaded.prefix(5)))
                             }
                         }
-                        BrowseSection(title: "Latest Episodes", count: store.latest.count, destination: .latest) {
-                            EpisodeStack(episodes: Array(store.latest.prefix(5)))
+                        let latest = store.apply("latest", to: store.latest)
+                        BrowseSection(title: "Latest Episodes", count: latest.count, destination: .latest,
+                                      note: store.filter(for: "latest") == .all ? nil : store.filter(for: "latest").title + ".") {
+                            EpisodeStack(episodes: Array(latest.prefix(5)))
                         }
                     }
                 }
@@ -425,12 +475,17 @@ struct BrowseListView: View {
             case .readyOnMac:
                 EpisodeStack(episodes: store.readyOnMac)
             case .latest:
-                EpisodeStack(episodes: Array(store.latest.prefix(200)))
+                let latest = store.apply("latest", to: store.latest)
+                if latest.isEmpty { FilteredEmpty(key: "latest") }
+                else { EpisodeStack(episodes: Array(latest.prefix(200))) }
             case .downloads:
                 DownloadsList()
             }
         }
         .navigationTitle(title)
+        .toolbar {
+            if list == .latest { ToolbarItem(placement: .topBarTrailing) { EpisodeFilterMenu(key: "latest") } }
+        }
     }
 
     private var title: String {
@@ -472,15 +527,18 @@ struct FeedView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 18)
                 }
-                let episodes = store.episodes(in: feed)
-                if !episodes.isEmpty {
+                let all = store.episodes(in: feed)
+                let episodes = store.apply("feed:\(feed.id)", to: all)
+                if !all.isEmpty {
                     Text("Episodes").font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal).padding(.top, 18)
-                    EpisodeStack(episodes: Array(episodes.prefix(200)))
+                    if episodes.isEmpty { FilteredEmpty(key: "feed:\(feed.id)") }
+                    else { EpisodeStack(episodes: Array(episodes.prefix(200))) }
                 }
             }
             .navigationTitle(feed.title)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { EpisodeFilterMenu(key: "feed:\(feed.id)") } }
         } else {
             ContentUnavailableView("Channel Not Found", systemImage: "dot.radiowaves.left.and.right")
         }
@@ -495,15 +553,20 @@ struct ShowView: View {
 
     var body: some View {
         if let show = store.show(showID) {
+            let key = "show:\(show.id)"
+            let episodes = store.apply(key, to: show.episodes)
             ScrollView {
                 VStack(spacing: 14) {
                     Artwork(url: show.artwork, size: 220, radius: 18)
                         .shadow(color: .black.opacity(0.25), radius: 18, y: 10)
                     Text(show.title).font(.title2.bold()).multilineTextAlignment(.center)
                     Text(show.author).font(.subheadline).foregroundStyle(.secondary)
-                    if let first = show.episodes.first {
+                    // Like the Mac: the newest episode not played yet, or the newest when all are.
+                    if let first = show.episodes.first(where: { !store.isPlayed($0) }) ?? show.episodes.first {
                         Button { player.play(first); player.showNowPlaying = true } label: {
-                            Label(store.position(of: first) > 15 ? "Resume" : "Latest Episode", systemImage: "play.fill")
+                            Label(store.position(of: first) > 15 && !store.isPlayed(first) ? "Resume"
+                                  : first.id == show.episodes.first?.id ? "Latest Episode" : "Next Unplayed",
+                                  systemImage: "play.fill")
                                 .font(.headline)
                                 .padding(.horizontal, 26).padding(.vertical, 6)
                         }
@@ -523,27 +586,45 @@ struct ShowView: View {
                     ContentUnavailableView("No Episodes Listed", systemImage: "headphones",
                                            description: Text(store.isStandalone ? "This show’s feed has no episodes." : "PodCraft on \(store.macName) hasn’t listed this show’s episodes yet."))
                 } else {
-                    LazyVStack(spacing: 0) {
-                        ForEach(show.episodes) { e in
-                            Divider().padding(.leading)
-                            EpisodeRow(episode: e, showsShow: false)
-                        }
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Episodes").font(.title2.bold())
+                        Spacer()
+                        Text(countLabel(shown: episodes.count, all: show.episodes.count))
+                            .font(.subheadline).foregroundStyle(.secondary)
                     }
-                    .padding(.top, 8)
+                    .padding(.horizontal).padding(.top, 18)
+                    if episodes.isEmpty {
+                        FilteredEmpty(key: key)
+                    } else {
+                        LazyVStack(spacing: 0) {
+                            ForEach(episodes) { e in
+                                Divider().padding(.leading)
+                                EpisodeRow(episode: e, showsShow: false)
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
                 }
             }
             .navigationTitle(show.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { EpisodeFilterMenu(key: key) }
                 if store.isStandalone {
-                    Menu {
-                        Button("Unfollow", systemImage: "minus.circle", role: .destructive) { store.unsubscribe(showID: show.id) }
-                    } label: { Image(systemName: "ellipsis") }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Button("Unfollow", systemImage: "minus.circle", role: .destructive) { store.unsubscribe(showID: show.id) }
+                        } label: { Image(systemName: "ellipsis") }
+                    }
                 }
             }
         } else {
             ContentUnavailableView("Show Not Found", systemImage: "square.stack")
         }
+    }
+
+    private func countLabel(shown: Int, all: Int) -> String {
+        shown == all ? "\(all) episode\(all == 1 ? "" : "s")" : "\(shown) of \(all)"
     }
 }
 
@@ -555,9 +636,13 @@ struct EpisodeRow: View {
 
     var body: some View {
         let isCurrent = player.episode?.id == episode.id
+        // Played episodes are greyed out (unless playing), so what's left to hear stands out.
+        let dimmed = store.isPlayed(episode) && !isCurrent
         HStack(alignment: .top, spacing: 12) {
             if showsShow {
                 Artwork(url: episode.artwork ?? store.show(episode.showID)?.artwork, size: 64, radius: 10)
+                    .opacity(dimmed ? 0.45 : 1)
+                    .saturation(dimmed ? 0.3 : 1)
             }
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -573,17 +658,18 @@ struct EpisodeRow: View {
                     }
                 }
                 .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                Text(episode.title).font(.headline).lineLimit(2)
+                Text(episode.title).font(dimmed ? .headline.weight(.regular) : .headline)
+                    .foregroundStyle(dimmed ? .secondary : .primary).lineLimit(2)
                 let summary = Fmt.plain(episode.summary)
                 if !summary.isEmpty {
-                    Text(summary).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                    Text(summary).font(.subheadline).foregroundStyle(dimmed ? .tertiary : .secondary).lineLimit(2)
                 }
                 HStack(spacing: 8) {
                     Button {
                         if isCurrent { player.togglePlay() } else { player.play(episode) }
                     } label: {
                         HStack(spacing: 6) {
-                            Image(systemName: isCurrent && player.isPlaying ? "pause.fill" : "play.fill")
+                            Image(systemName: isCurrent && player.isPlaying ? "pause.fill" : dimmed ? "checkmark" : "play.fill")
                             if store.isPlayed(episode) { Text("Played") }
                             else if store.position(of: episode) > 15 {
                                 ProgressView(value: store.position(of: episode), total: max(episode.duration, 1))
@@ -595,6 +681,8 @@ struct EpisodeRow: View {
                         .padding(.horizontal, 12).padding(.vertical, 6)
                     }
                     .buttonStyle(.glass)
+                    .foregroundStyle(dimmed ? Color.secondary : Color.primary)
+                    .accessibilityLabel(dimmed ? "Played, Play Again" : isCurrent && player.isPlaying ? "Pause" : "Play")
                     DownloadButton(episode: episode)
                 }
                 .padding(.top, 4)
@@ -604,7 +692,7 @@ struct EpisodeRow: View {
         .padding(.horizontal)
         .padding(.vertical, 12)
         .contentShape(Rectangle())
-        .contextMenu { EpisodeMenu(episode: episode, store: store, player: player) }
+        .contextMenu { EpisodeMenu(episode: episode, store: store, player: player, goToShow: showsShow) }
         .episodeSwipes(episode)
     }
 }
@@ -613,11 +701,13 @@ struct EpisodeRow: View {
 
 struct SearchView: View {
     @Environment(Store.self) private var store
+    @Environment(Router.self) private var router
     @State private var query = ""
     @State private var findQuery: String?
 
     var body: some View {
-        NavigationStack {
+        @Bindable var r = router
+        NavigationStack(path: $r.search) {
             List {
                 let q = query.trimmingCharacters(in: .whitespaces)
                 if q.isEmpty {
@@ -626,7 +716,12 @@ struct SearchView: View {
                         .listRowBackground(Color.clear)
                 } else {
                     let shows = store.shows.filter { $0.title.localizedCaseInsensitiveContains(q) || $0.author.localizedCaseInsensitiveContains(q) }
-                    let episodes = store.latest.filter { $0.title.localizedCaseInsensitiveContains(q) || $0.summary.localizedCaseInsensitiveContains(q) }
+                    // Like the Mac, an episode matches by its show's name too.
+                    let matchingShows = Set(shows.map(\.id))
+                    let episodes = store.latest.filter {
+                        $0.title.localizedCaseInsensitiveContains(q) || $0.summary.localizedCaseInsensitiveContains(q)
+                            || matchingShows.contains($0.showID)
+                    }
                     if !shows.isEmpty {
                         Section("Shows") {
                             ForEach(shows) { show in
@@ -669,3 +764,54 @@ struct SearchView: View {
 }
 
 struct FindQuery: Identifiable { var text: String; var id: String { text } }
+
+// MARK: - Filters
+
+/// The filter button on episode lists: all episodes, hide played, or downloaded only, and the sort order.
+struct EpisodeFilterMenu: View {
+    @Environment(Store.self) private var store
+    let key: String
+
+    var body: some View {
+        let current = store.filter(for: key)
+        let oldest = store.isOldestFirst(key)
+        Menu {
+            Picker("Show", selection: Binding(get: { store.filter(for: key) },
+                                              set: { f in withAnimation { store.setFilter(f, for: key) } })) {
+                ForEach(EpisodeFilter.allCases) { Label($0.title, systemImage: $0.icon).tag($0) }
+            }
+            .pickerStyle(.inline)
+            Picker("Order", selection: Binding(get: { store.isOldestFirst(key) },
+                                               set: { o in withAnimation { store.setOldestFirst(o, for: key) } })) {
+                Label("Newest First", systemImage: "arrow.down").tag(false)
+                Label("Oldest First", systemImage: "arrow.up").tag(true)
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Image(systemName: current == .all && !oldest ? "line.3.horizontal.decrease.circle"
+                  : "line.3.horizontal.decrease.circle.fill")
+                .font(.title3)
+                .foregroundStyle(current == .all && !oldest ? Color.primary : Color.podTeal)
+        }
+        .accessibilityLabel("Filter Episodes")
+        .accessibilityValue(current == .all ? "All Episodes" : current.title)
+    }
+}
+
+/// A list whose filter leaves nothing to show.
+struct FilteredEmpty: View {
+    @Environment(Store.self) private var store
+    let key: String
+
+    var body: some View {
+        let f = store.filter(for: key)
+        ContentUnavailableView {
+            Label(f == .downloaded ? "No Downloads Here" : "All Played", systemImage: f == .downloaded ? "arrow.down.circle" : "checkmark.circle")
+        } description: {
+            Text(f == .downloaded ? "None of these episodes are on this iPhone." : "Every episode here has been played.")
+        } actions: {
+            Button("Show All Episodes") { withAnimation { store.setFilter(.all, for: key) } }
+        }
+        .padding(.vertical, 20)
+    }
+}

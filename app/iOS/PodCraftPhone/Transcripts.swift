@@ -461,8 +461,12 @@ struct TranscriptSheet: View {
     @Environment(\.dismiss) private var dismiss
     let title: String
     let lines: [TranscriptLine]
+    /// Narrows the lines to those with these words, like the Mac's transcript search.
+    @State private var query = ""
 
     var body: some View {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        let shown = q.isEmpty ? lines : lines.filter { $0.text.localizedCaseInsensitiveContains(q) }
         VStack(spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -480,8 +484,30 @@ struct TranscriptSheet: View {
             }
             .padding(.horizontal, 20).padding(.top, 22).padding(.bottom, 8)
 
-            TranscriptLinesView(lines: lines, large: true)
-                .padding(.horizontal, 20)
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Search Transcript", text: $query)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.search)
+                if !query.isEmpty {
+                    Text("\(shown.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Clear Search")
+                }
+            }
+            .padding(.horizontal, 12).frame(height: 38)
+            .background(.ultraThinMaterial, in: Capsule())
+            .padding(.horizontal, 20).padding(.bottom, 8)
+
+            if shown.isEmpty {
+                ContentUnavailableView.search(text: q).frame(maxHeight: .infinity)
+            } else {
+                TranscriptLinesView(lines: shown, large: true)
+                    .padding(.horizontal, 20)
+                    .id(q.isEmpty ? "all" : "search")
+            }
 
             HStack(spacing: 28) {
                 Text(Fmt.clock(player.position)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)

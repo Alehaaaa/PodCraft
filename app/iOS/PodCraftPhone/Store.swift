@@ -6,6 +6,26 @@ import Observation
 ///   is kept on the phone so the shows are there at once, and listening positions are sent back to the Mac.
 /// - Standalone: shows this phone follows itself, read straight from their feeds, with no Mac at all.
 /// Either way, Sync (a sync code) keeps subscriptions, progress and settings in step across devices.
+/// Which episodes a list shows (the same choices as the Mac's show pages).
+enum EpisodeFilter: String, CaseIterable, Identifiable {
+    case all = "All", unplayed = "Unplayed", downloaded = "Downloaded"
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .all: "All Episodes"
+        case .unplayed: "Hide Played"
+        case .downloaded: "Downloaded Only"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .all: "list.bullet"
+        case .unplayed: "circle"
+        case .downloaded: "arrow.down.circle"
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class Store {
@@ -35,6 +55,10 @@ final class Store {
     /// Playback speed, shared with other devices through Sync.
     private(set) var rate: Float
     @ObservationIgnored private var rateUpdatedAt: Date
+    /// Which episodes each list shows (All, Unplayed, Downloaded), by list key; "All" isn't stored.
+    private(set) var episodeFilters: [String: String]
+    /// Lists sorted oldest first, by list key.
+    private(set) var oldestFirst: Set<String>
 
     let sync: CloudSync
 
@@ -76,6 +100,8 @@ final class Store {
         rate = defaults.object(forKey: "rate") as? Float ?? 1
         skipSponsors = defaults.object(forKey: "skipSponsors") as? Bool ?? true
         rateUpdatedAt = defaults.object(forKey: "rateUpdatedAt") as? Date ?? .distantPast
+        episodeFilters = (defaults.dictionary(forKey: "episodeFilters") as? [String: String]) ?? [:]
+        oldestFirst = Set(defaults.stringArray(forKey: "oldestFirst") ?? [])
         if let m = defaults.string(forKey: "mode").flatMap(Mode.init(rawValue:)) {
             mode = m
         } else if !server.isEmpty && !code.isEmpty {
@@ -393,6 +419,35 @@ final class Store {
     var continueListening: [RemoteEpisode] {
         latest.filter { position(of: $0) > 15 && !isPlayed($0) }
             .sorted { (progressStamps[$0.id] ?? 0) > (progressStamps[$1.id] ?? 0) }
+    }
+
+    // MARK: Filters
+
+    /// What a list of episodes shows, like the Mac's show pages. Keys: "latest", "show:<id>", "feed:<id>".
+    func filter(for key: String) -> EpisodeFilter {
+        episodeFilters[key].flatMap(EpisodeFilter.init(rawValue:)) ?? .all
+    }
+
+    func setFilter(_ f: EpisodeFilter, for key: String) {
+        if f == .all { episodeFilters[key] = nil } else { episodeFilters[key] = f.rawValue }
+        defaults.set(episodeFilters, forKey: "episodeFilters")
+    }
+
+    func isOldestFirst(_ key: String) -> Bool { oldestFirst.contains(key) }
+
+    func setOldestFirst(_ on: Bool, for key: String) {
+        if on { oldestFirst.insert(key) } else { oldestFirst.remove(key) }
+        defaults.set(Array(oldestFirst), forKey: "oldestFirst")
+    }
+
+    /// A list's episodes (newest first) after its filter and sort order.
+    func apply(_ key: String, to episodes: [RemoteEpisode]) -> [RemoteEpisode] {
+        let kept: [RemoteEpisode] = switch filter(for: key) {
+        case .all: episodes
+        case .unplayed: episodes.filter { !isPlayed($0) }
+        case .downloaded: episodes.filter { Downloads.shared.isDownloaded($0) }
+        }
+        return isOldestFirst(key) ? kept.reversed() : kept
     }
 
     // MARK: Up Next

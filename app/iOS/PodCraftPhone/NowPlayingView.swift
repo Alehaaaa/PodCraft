@@ -65,6 +65,7 @@ struct NowPlayingView: View {
     /// The last video time copied to the audio player, to tell it from a seek made elsewhere (chapters, transcript).
     @State private var mirrored: Double?
     @Environment(\.openURL) private var openURL
+    @Environment(Router.self) private var router
 
     enum Panel: String, CaseIterable, Identifiable {
         case chapters = "Chapters", transcript = "Transcript", notes = "Notes", upNext = "Up Next"
@@ -151,6 +152,9 @@ struct NowPlayingView: View {
                 .shadow(color: .black.opacity(0.35), radius: 28, y: 16)
                 .animation(.spring(duration: 0.45, bounce: 0.3), value: player.isPlaying)
                 .padding(.top, 6)
+                .onTapGesture { openShow(e) }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Go to \(store.show(e.showID)?.title ?? "Show")")
         }
     }
 
@@ -166,7 +170,18 @@ struct NowPlayingView: View {
                 }
                 .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 Text(e.title).font(.title3.bold()).lineLimit(3)
-                Text(store.show(e.showID)?.title ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                if let show = store.show(e.showID) {
+                    Button { openShow(e) } label: {
+                        HStack(spacing: 4) {
+                            Text(show.title).lineLimit(1)
+                            Image(systemName: "chevron.right").font(.caption.weight(.bold))
+                        }
+                        .font(.subheadline).foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Go to \(show.title)")
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             moreMenu(e)
@@ -181,6 +196,9 @@ struct NowPlayingView: View {
                 Button("Mark as Played", systemImage: "checkmark.circle") { store.setPlayed(e, true); player.pause() }
             }
             ShareLink(item: e.media, subject: Text(e.title)) { Label("Share Episode", systemImage: "square.and.arrow.up") }
+            if store.show(e.showID) != nil {
+                Button("Go to Show", systemImage: "square.stack") { openShow(e) }
+            }
             if let id = store.youtubeID(for: e) {
                 Button("Open in YouTube", systemImage: "arrow.up.forward.app") { openInYouTube(id) }
             }
@@ -287,7 +305,7 @@ struct NowPlayingView: View {
             .accessibilityLabel("Playback Speed")
 
             Menu {
-                if player.sleepAt != nil || player.sleepAtChapterEnd {
+                if player.sleepAt != nil || player.sleepAtChapterEnd || player.sleepAtEpisodeEnd {
                     Button("Turn Off Timer", systemImage: "moon.zzz") { player.setSleepTimer(minutes: nil) }
                     Divider()
                 }
@@ -297,11 +315,14 @@ struct NowPlayingView: View {
                 if !player.chapters.isEmpty {
                     Button("End of Chapter") { player.sleepAtEndOfChapter() }
                 }
+                Button("End of Episode") { player.sleepAtEndOfEpisode() }
             } label: {
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
-                    pill(icon: player.sleepAt != nil || player.sleepAtChapterEnd ? "moon.fill" : "moon",
-                         text: player.sleepRemaining.map { Fmt.clock($0) } ?? (player.sleepAtChapterEnd ? "Chapter" : "Sleep"),
-                         active: player.sleepAt != nil || player.sleepAtChapterEnd)
+                    let on = player.sleepAt != nil || player.sleepAtChapterEnd || player.sleepAtEpisodeEnd
+                    pill(icon: on ? "moon.fill" : "moon",
+                         text: player.sleepRemaining.map { Fmt.clock($0) }
+                            ?? (player.sleepAtChapterEnd ? "Chapter" : player.sleepAtEpisodeEnd ? "Episode" : "Sleep"),
+                         active: on)
                 }
             }
             .accessibilityLabel("Sleep Timer")
@@ -405,6 +426,12 @@ struct NowPlayingView: View {
         video.seek(to: t)
     }
 
+    /// Closes the player and opens the show's page on the tab that's open.
+    private func openShow(_ e: RemoteEpisode) {
+        guard let show = store.show(e.showID) else { return }
+        router.open(show, player: player)
+    }
+
     private func openInYouTube(_ id: String) {
         guard let url = YouTubeVideo.link(videoID: id, at: video?.time ?? player.position) else { return }
         if video != nil { listen(resume: false) }
@@ -485,6 +512,14 @@ struct NowPlayingView: View {
                 HStack {
                     Text("Tap a line to jump there").font(.caption).foregroundStyle(.secondary)
                     Spacer()
+                    // Find a passage: the full transcript opens with its search field.
+                    Button { transcriptExpanded = true } label: {
+                        Image(systemName: "magnifyingglass").font(.subheadline.weight(.semibold))
+                            .frame(width: 32, height: 32)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Search Transcript")
                     Button { transcriptExpanded = true } label: {
                         Image(systemName: "arrow.up.left.and.arrow.down.right").font(.subheadline.weight(.semibold))
                             .frame(width: 32, height: 32)
