@@ -218,7 +218,8 @@ final class TranscriptService {
         let id = e.id
         phases[id] = .preparing
         lines[id] = []
-        let media = e.media
+        // A downloaded episode is transcribed from the phone, with nothing to fetch.
+        let media = Downloads.shared.localURL(for: e) ?? e.media
         let duration = e.duration
         let service = self
         tasks[id] = Task {
