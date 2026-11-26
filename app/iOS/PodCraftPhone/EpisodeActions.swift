@@ -150,6 +150,7 @@ struct EpisodeMenu: View {
             } else {
                 Button("Mark as Played", systemImage: "checkmark.circle") { store.setPlayed(episode, true) }
             }
+            DownloadMenuItems(episode: episode)
             ShareLink(item: episode.media, subject: Text(episode.title)) {
                 Label("Share Episode", systemImage: "square.and.arrow.up")
             }

@@ -71,7 +71,8 @@ final class AudioPlayer {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: e.isVideo ? .moviePlayback : .spokenAudio, policy: .longFormAudio)
         try? session.setActive(true)
-        let item = AVPlayerItem(url: e.media)
+        // A downloaded episode plays from the phone, with no connection needed.
+        let item = AVPlayerItem(url: Downloads.shared.localURL(for: e) ?? e.media)
         item.preferredForwardBufferDuration = 30
         let p = AVPlayer(playerItem: item)
         p.automaticallyWaitsToMinimizeStalling = true
