@@ -21,6 +21,8 @@ final class Store {
     /// Positions saved on the phone, by episode id, and when each last changed (for Sync).
     private(set) var positions: [String: Double]
     private(set) var played: Set<String>
+    /// Up Next: episodes lined up to play after the current one, by id, in order (kept on this iPhone).
+    private(set) var queue: [String]
     @ObservationIgnored private var progressStamps: [String: Double]
     /// Shows followed in standalone mode (removed ones are kept a while as tombstones for Sync).
     private(set) var subscriptions: [Subscription]
@@ -66,6 +68,7 @@ final class Store {
         macName = defaults.string(forKey: "macName") ?? "Mac"
         positions = (defaults.dictionary(forKey: "positions") as? [String: Double]) ?? [:]
         played = Set(defaults.stringArray(forKey: "played") ?? [])
+        queue = defaults.stringArray(forKey: "queue") ?? []
         progressStamps = (defaults.dictionary(forKey: "progressStamps") as? [String: Double]) ?? [:]
         subscriptions = defaults.data(forKey: "subscriptions").flatMap { try? Self.decoder.decode([Subscription].self, from: $0) } ?? []
         rate = defaults.object(forKey: "rate") as? Float ?? 1
@@ -377,6 +380,51 @@ final class Store {
             .sorted { (progressStamps[$0.id] ?? 0) > (progressStamps[$1.id] ?? 0) }
     }
 
+    // MARK: Up Next
+
+    func isQueued(_ e: RemoteEpisode) -> Bool { queue.contains(e.id) }
+
+    /// The queue's episodes that are in the library now, in order.
+    var queuedEpisodes: [RemoteEpisode] {
+        guard !queue.isEmpty else { return [] }
+        let byID = Dictionary(allEpisodes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return queue.compactMap { byID[$0] }
+    }
+
+    /// Adds an episode to the end of Up Next (moving it there if it's already queued).
+    func enqueue(_ e: RemoteEpisode) {
+        queue.removeAll { $0 == e.id }
+        queue.append(e.id)
+        saveQueue()
+    }
+
+    /// Puts an episode first in Up Next, to play after the current one.
+    func playNext(_ e: RemoteEpisode) {
+        queue.removeAll { $0 == e.id }
+        queue.insert(e.id, at: 0)
+        saveQueue()
+    }
+
+    func dequeue(_ id: String) {
+        guard queue.contains(id) else { return }
+        queue.removeAll { $0 == id }
+        saveQueue()
+    }
+
+    func clearQueue() {
+        queue = []
+        saveQueue()
+    }
+
+    /// Takes the first queued episode still in the library off Up Next, for the player to play.
+    func popQueue() -> RemoteEpisode? {
+        guard let next = queuedEpisodes.first else { return nil }
+        dequeue(next.id)
+        return next
+    }
+
+    private func saveQueue() { defaults.set(queue, forKey: "queue") }
+
     // MARK: Progress
 
     func position(of e: RemoteEpisode) -> Double { positions[e.id] ?? e.position }
@@ -394,6 +442,12 @@ final class Store {
 
     func setPlayed(_ e: RemoteEpisode, _ done: Bool) {
         save(position: done ? 0 : position(of: e), for: e, played: done)
+        report(e)
+    }
+
+    /// Forgets where the listener got to, so the episode leaves Continue Listening.
+    func clearProgress(_ e: RemoteEpisode) {
+        save(position: 0, for: e, played: false)
         report(e)
     }
 
