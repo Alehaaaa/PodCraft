@@ -60,6 +60,7 @@ final class AudioPlayer {
     // MARK: Playing
 
     func play(_ e: RemoteEpisode) {
+        store?.dequeue(e.id)
         if episode?.id == e.id { if !isPlaying { resume() }; return }
         saveProgress(report: true)
         stopObserving()
@@ -151,7 +152,10 @@ final class AudioPlayer {
                 self.isPlaying = false
                 self.store?.save(position: 0, for: e, played: true)
                 self.store?.report(e)
+                self.position = 0
                 self.updateNowPlaying()
+                // Carry on with Up Next.
+                if let next = self.store?.popQueue() { self.play(next) }
             }
         }
     }

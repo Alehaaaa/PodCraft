@@ -93,6 +93,17 @@ struct HomeView: View {
                             }
                         }
                     } else {
+                        let queued = store.queuedEpisodes
+                        if !queued.isEmpty {
+                            SectionTitle("Up Next")
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                LazyHStack(spacing: 14) {
+                                    ForEach(queued.prefix(20)) { ContinueCard(episode: $0, inQueue: true) }
+                                }
+                                .padding(.horizontal)
+                            }
+                            .scrollClipDisabled()
+                        }
                         if !store.continueListening.isEmpty {
                             SectionTitle("Continue Listening")
                             ScrollView(.horizontal, showsIndicators: false) {
@@ -213,6 +224,8 @@ struct ContinueCard: View {
     @Environment(Store.self) private var store
     @Environment(AudioPlayer.self) private var player
     let episode: RemoteEpisode
+    /// Shown in the Up Next shelf rather than Continue Listening.
+    var inQueue = false
 
     var body: some View {
         Button { player.play(episode); player.showNowPlaying = true } label: {
@@ -226,8 +239,17 @@ struct ContinueCard: View {
                 Text("\(Fmt.remaining(store.remaining(episode))) left").font(.caption).foregroundStyle(.secondary)
             }
             .frame(width: 150)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            EpisodeMenu(episode: episode, store: store, player: player)
+            if inQueue {
+                Button("Move to Front", systemImage: "arrow.up.to.line") { store.playNext(episode) }
+            } else if store.position(of: episode) > 0 && !store.isPlayed(episode) {
+                Button("Remove from Continue Listening", systemImage: "xmark.circle") { store.clearProgress(episode) }
+            }
+        }
     }
 }
 
@@ -346,6 +368,8 @@ struct EpisodeStack: View {
 }
 
 struct ShowTile: View {
+    @Environment(Store.self) private var store
+    @Environment(AudioPlayer.self) private var player
     let show: RemoteShow
     var size: CGFloat?
 
@@ -359,8 +383,10 @@ struct ShowTile: View {
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             .frame(width: size)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu { ShowMenu(show: show, store: store, player: player) }
     }
 }
 
@@ -541,6 +567,10 @@ struct EpisodeRow: View {
                         Image(systemName: "scissors").foregroundStyle(Color.podTeal)
                             .accessibilityLabel("Sponsors removed on your Mac")
                     }
+                    if store.isQueued(episode) {
+                        Image(systemName: "text.badge.plus").foregroundStyle(Color.podTeal)
+                            .accessibilityLabel("In Up Next")
+                    }
                 }
                 .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
                 Text(episode.title).font(.headline).lineLimit(2)
@@ -574,18 +604,8 @@ struct EpisodeRow: View {
         .padding(.horizontal)
         .padding(.vertical, 12)
         .contentShape(Rectangle())
-        .contextMenu {
-            Button("Play", systemImage: "play") { player.play(episode) }
-            Button("Open Player", systemImage: "rectangle.portrait.and.arrow.forward") {
-                player.play(episode); player.showNowPlaying = true
-            }
-            if store.isPlayed(episode) {
-                Button("Mark as Unplayed", systemImage: "circle") { store.setPlayed(episode, false) }
-            } else {
-                Button("Mark as Played", systemImage: "checkmark.circle") { store.setPlayed(episode, true) }
-            }
-            DownloadMenuItems(episode: episode)
-        }
+        .contextMenu { EpisodeMenu(episode: episode, store: store, player: player) }
+        .episodeSwipes(episode)
     }
 }
 
