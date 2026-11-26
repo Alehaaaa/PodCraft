@@ -2,8 +2,9 @@ import Observation
 import SwiftUI
 import WebKit
 
-/// An episode's official YouTube upload, played inside PodCraft with YouTube's embedded player. The Mac finds and
-/// verifies the upload (it needs yt-dlp); the phone only gets the video id, through the Mac's library or Sync.
+/// An episode's official YouTube upload, played inside PodCraft. YouTube's embedded player does the playing, but
+/// none of its own interface shows or takes touches: PodCraft's player controls drive it.
+/// The video id comes from the Mac (its library or Sync) or from the phone's own search (YouTubeFinder).
 @MainActor
 @Observable
 final class YouTubeVideo {
@@ -12,6 +13,9 @@ final class YouTubeVideo {
     private(set) var time: Double
     private(set) var isPlaying = false
     private(set) var isReady = false
+    /// The first frame is playing: until then (and after the end) the player covers YouTube's start and end screens.
+    private(set) var hasStarted = false
+    private(set) var ended = false
     /// YouTube refused to play it here (embedding turned off, private, removed…). Open it in YouTube instead.
     private(set) var failed = false
 
@@ -31,6 +35,8 @@ final class YouTubeVideo {
         webView.backgroundColor = .black
         webView.scrollView.isScrollEnabled = false
         webView.scrollView.contentInsetAdjustmentBehavior = .never
+        // Only the picture: no YouTube controls, menus or links to tap.
+        webView.isUserInteractionEnabled = false
         messages.receive = { [weak self] body in self?.handle(body) }
         guard Self.isValid(videoID) else { failed = true; return }
         // YouTube wants to know who embeds the player; an app uses an https origin made from its bundle id.
@@ -50,13 +56,17 @@ final class YouTubeVideo {
 
     // MARK: Controls
 
-    func play() { run("player.playVideo()"); isPlaying = true }
+    func play() {
+        if ended { seek(to: 0) }
+        run("player.playVideo()"); isPlaying = true
+    }
     func pause() { run("player.pauseVideo()"); isPlaying = false }
     func togglePlay() { isPlaying ? pause() : play() }
 
     func seek(to seconds: Double) {
         let t = max(0, seconds)
         time = t
+        ended = false
         run("player.seekTo(\(t), true)")
     }
 
@@ -87,6 +97,7 @@ final class YouTubeVideo {
             // -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
             if let s = msg["state"] as? Int {
                 if s == 1 || s == 3 { isPlaying = true } else if s == 0 || s == 2 { isPlaying = false }
+                if s == 1 { hasStarted = true; ended = false } else if s == 0 { ended = true }
             }
         case "error":
             failed = true
@@ -99,7 +110,12 @@ final class YouTubeVideo {
         """
         <!doctype html><html><head>
         <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-        <style>html,body{margin:0;height:100%;background:#000;overflow:hidden}#player{position:absolute;inset:0;width:100%;height:100%}</style>
+        <style>
+        html,body{margin:0;height:100%;background:#000;overflow:hidden}
+        /* Taller than the view: the video stays full width in the middle, while YouTube's title bar (top) and
+           logo (bottom) fall outside what's shown. Nothing in it takes touches. */
+        #player{position:absolute;left:0;width:100%;top:-120px;height:calc(100% + 240px);pointer-events:none}
+        </style>
         </head><body><div id="player"></div>
         <script>
         function post(m){try{window.webkit.messageHandlers.yt.postMessage(m)}catch(e){}}
@@ -107,7 +123,8 @@ final class YouTubeVideo {
         function onYouTubeIframeAPIReady(){
           player=new YT.Player('player',{
             videoId:'\(videoID)',
-            playerVars:{playsinline:1,autoplay:1,start:\(Int(start)),rel:0,iv_load_policy:3,origin:'\(origin)'},
+            playerVars:{playsinline:1,autoplay:1,start:\(Int(start)),controls:0,disablekb:1,fs:0,rel:0,
+                        iv_load_policy:3,cc_load_policy:0,modestbranding:1,origin:'\(origin)'},
             events:{
               onReady:function(e){e.target.setPlaybackRate(\(rate));e.target.seekTo(\(start),true);e.target.playVideo();post({event:'ready',time:e.target.getCurrentTime()})},
               onStateChange:function(e){post({event:'state',state:e.data,time:player.getCurrentTime()})},
