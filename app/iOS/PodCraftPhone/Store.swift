@@ -319,6 +319,12 @@ final class Store {
         return extras[e.id]?.chapters.map { RemoteChapter(start: $0.start, title: $0.title) } ?? []
     }
 
+    /// The episode's YouTube upload: verified by the Mac (its library, or Sync for episodes streamed from their feed),
+    /// or found by this phone on its own.
+    func youtubeID(for e: RemoteEpisode) -> String? {
+        e.youtube ?? extras[e.id]?.youtube ?? YouTubeFinder.shared.found[e.id]
+    }
+
     func hasTranscript(_ e: RemoteEpisode) -> Bool { e.hasTranscript || !(extras[e.id]?.transcript.isEmpty ?? true) }
 
     /// Sponsor spans to skip while playing, when that's on.

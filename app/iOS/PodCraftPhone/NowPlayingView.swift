@@ -59,6 +59,11 @@ struct NowPlayingView: View {
     /// The episode whose transcript finished loading (nil while it loads).
     @State private var transcriptLoaded: String?
     @State private var scrubbing: Double?
+    /// The episode's YouTube upload, while it plays in place of the audio.
+    @State private var video: YouTubeVideo?
+    /// The last video time copied to the audio player, to tell it from a seek made elsewhere (chapters, transcript).
+    @State private var mirrored: Double?
+    @Environment(\.openURL) private var openURL
 
     enum Panel: String, CaseIterable, Identifiable {
         case chapters = "Chapters", transcript = "Transcript", notes = "Notes", upNext = "Up Next"
@@ -72,6 +77,7 @@ struct NowPlayingView: View {
                     VStack(spacing: 20) {
                         Capsule().fill(.secondary.opacity(0.5)).frame(width: 38, height: 5).padding(.top, 8)
                         picture(e)
+                        sourceSwitch(e)
                         titles(e)
                         chapterBar
                         scrubber
@@ -86,6 +92,18 @@ struct NowPlayingView: View {
             }
             .background(backdrop(e))
             .overlay(alignment: .top) { sponsorNotice }
+            .onChange(of: e.id) { closeVideo() }
+            .onChange(of: player.isPlaying) { _, playing in if playing && video != nil { listen(resume: false) } }
+            .onChange(of: video?.time) { _, t in mirror(t) }
+            .onChange(of: player.position) { _, t in followSeek(t) }
+            .onDisappear { listen(resume: false) }
+            .task(id: "youtube|\(e.id)") {
+                // Give the Mac's answer (through Sync) a moment to arrive; otherwise look on YouTube from the phone.
+                try? await Task.sleep(for: .seconds(2))
+                if !Task.isCancelled, store.youtubeID(for: e) == nil {
+                    await YouTubeFinder.shared.lookUp(e, show: store.show(e.showID))
+                }
+            }
             .task(id: "\(e.id)|\(store.hasTranscript(e))") {
                 transcript = nil
                 transcriptLoaded = nil
@@ -99,7 +117,26 @@ struct NowPlayingView: View {
 
     @ViewBuilder
     private func picture(_ e: RemoteEpisode) -> some View {
-        if e.isVideo, let p = player.player {
+        if let video {
+            ZStack {
+                Color.black
+                YouTubeVideoView(video: video)
+                if video.failed {
+                    VStack(spacing: 10) {
+                        Text("YouTube doesn’t allow this video to play inside PodCraft.")
+                            .font(.subheadline.weight(.semibold)).multilineTextAlignment(.center)
+                        Button("Open in YouTube", systemImage: "arrow.up.forward.app") { openInYouTube(video.videoID) }
+                            .buttonStyle(.borderedProminent).tint(Color.podTeal)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(20)
+                } else if !video.isReady {
+                    ProgressView().tint(.white)
+                }
+            }
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        } else if e.isVideo, let p = player.player {
             VideoPlayer(player: p)
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -140,6 +177,9 @@ struct NowPlayingView: View {
                 Button("Mark as Played", systemImage: "checkmark.circle") { store.setPlayed(e, true); player.pause() }
             }
             ShareLink(item: e.media, subject: Text(e.title)) { Label("Share Episode", systemImage: "square.and.arrow.up") }
+            if let id = store.youtubeID(for: e) {
+                Button("Open in YouTube", systemImage: "arrow.up.forward.app") { openInYouTube(id) }
+            }
             if TranscriptService.canTranscribe, !store.transcripts.isRunning(e.id), transcript == nil || store.transcripts.hasOnDevice(e.id) {
                 Button(store.transcripts.hasOnDevice(e.id) ? "Transcribe Again on iPhone" : "Transcribe on iPhone",
                        systemImage: "waveform.badge.magnifyingglass") {
@@ -189,16 +229,16 @@ struct NowPlayingView: View {
     }
 
     private var scrubber: some View {
-        let shown = scrubbing ?? player.position
+        let shown = min(scrubbing ?? video?.time ?? player.position, max(player.duration, 1))
         return VStack(spacing: 4) {
             Slider(value: Binding(get: { shown }, set: { scrubbing = $0 }),
                    in: 0...max(player.duration, 1)) { editing in
-                if !editing, let t = scrubbing { player.seek(to: t); scrubbing = nil }
+                if !editing, let t = scrubbing { seek(to: t); scrubbing = nil }
             }
             HStack {
                 Text(Fmt.clock(shown))
                 Spacer()
-                if player.isBuffering { ProgressView().controlSize(.mini) }
+                if video == nil && player.isBuffering { ProgressView().controlSize(.mini) }
                 Spacer()
                 Text("−" + Fmt.clock(max(0, player.duration - shown) / Double(player.rate)))
             }
@@ -208,19 +248,19 @@ struct NowPlayingView: View {
 
     private var transport: some View {
         HStack {
-            Button { player.skip(-15) } label: { Image(systemName: "gobackward.15").font(.system(size: 32)) }
+            Button { skip(-15) } label: { Image(systemName: "gobackward.15").font(.system(size: 32)) }
                 .accessibilityLabel("Back 15 Seconds")
             Spacer()
-            Button { player.togglePlay() } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+            Button { if let video { video.togglePlay() } else { player.togglePlay() } } label: {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 40))
                     .contentTransition(.symbolEffect(.replace))
                     .frame(width: 84, height: 84)
                     .background(.ultraThinMaterial, in: Circle())
             }
-            .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
+            .accessibilityLabel(isPlaying ? "Pause" : "Play")
             Spacer()
-            Button { player.skip(30) } label: { Image(systemName: "goforward.30").font(.system(size: 32)) }
+            Button { skip(30) } label: { Image(systemName: "goforward.30").font(.system(size: 32)) }
                 .accessibilityLabel("Forward 30 Seconds")
         }
         .foregroundStyle(.primary)
@@ -233,7 +273,7 @@ struct NowPlayingView: View {
         HStack(spacing: 10) {
             Menu {
                 ForEach([0.8, 1.0, 1.1, 1.2, 1.3, 1.5, 1.75, 2.0] as [Float], id: \.self) { r in
-                    Button { player.setRate(r) } label: {
+                    Button { player.setRate(r); video?.setRate(r) } label: {
                         if abs(player.rate - r) < 0.01 { Label(speed(r), systemImage: "checkmark") } else { Text(speed(r)) }
                     }
                 }
@@ -280,6 +320,92 @@ struct NowPlayingView: View {
 
     private func speed(_ r: Float) -> String {
         r == Float(Int(r)) ? "\(Int(r))×" : String(format: "%g×", r)
+    }
+
+    // MARK: Audio or YouTube video
+
+    private var isPlaying: Bool { video?.isPlaying ?? player.isPlaying }
+
+    /// One tap between the podcast audio and the same episode on the show's YouTube channel, at the same moment.
+    @ViewBuilder
+    private func sourceSwitch(_ e: RemoteEpisode) -> some View {
+        if let id = store.youtubeID(for: e) {
+            HStack(spacing: 0) {
+                sourceButton("Audio", icon: "waveform", selected: video == nil) { listen(resume: true) }
+                sourceButton("YouTube", icon: "play.rectangle.fill", selected: video != nil) { watch(id) }
+            }
+            .padding(3)
+            .background(.ultraThinMaterial, in: Capsule())
+        }
+    }
+
+    private func sourceButton(_ title: String, icon: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(selected ? Color.white : .primary)
+                .padding(.horizontal, 16).frame(height: 34)
+                .background(selected ? Color.podTeal : .clear, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func watch(_ id: String) {
+        guard video == nil else { return }
+        player.pause()
+        mirrored = player.position
+        withAnimation(.spring(duration: 0.35)) {
+            video = YouTubeVideo(videoID: id, start: player.position, rate: player.rate)
+        }
+    }
+
+    /// Back to the audio where the video got to, playing if the video was.
+    private func listen(resume: Bool) {
+        guard let v = video else { return }
+        let t = v.time, wasPlaying = v.isPlaying
+        v.stop()
+        withAnimation(.spring(duration: 0.35)) { video = nil }
+        mirrored = nil
+        player.seek(to: t)
+        if resume && wasPlaying { player.resume() }
+    }
+
+    /// Another episode started: the video belonged to the one before.
+    private func closeVideo() {
+        video?.stop()
+        video = nil
+        mirrored = nil
+    }
+
+    private func seek(to t: Double) {
+        if let video { video.seek(to: t) } else { player.seek(to: t) }
+    }
+
+    private func skip(_ delta: Double) {
+        if let video { video.skip(delta) } else { player.skip(delta) }
+    }
+
+    /// Keeps the paused audio where the video is, so chapters, the transcript and saved progress follow along.
+    private func mirror(_ t: Double?) {
+        guard let t, video != nil, abs(t - player.position) >= 1 else { return }
+        player.seek(to: t)
+        mirrored = player.position
+    }
+
+    /// A chapter or transcript line tapped while the video plays moves the video.
+    private func followSeek(_ t: Double) {
+        guard let video, let mirrored, abs(t - mirrored) > 1.5 else { return }
+        self.mirrored = t
+        video.seek(to: t)
+    }
+
+    private func openInYouTube(_ id: String) {
+        guard let url = YouTubeVideo.link(videoID: id, at: video?.time ?? player.position) else { return }
+        if video != nil { listen(resume: false) }
+        player.pause()
+        openURL(url)
     }
 
     // MARK: Panels
