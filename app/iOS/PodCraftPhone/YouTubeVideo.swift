@@ -44,7 +44,7 @@ final class YouTubeVideo {
         URL(string: "https://www.youtube.com/watch?v=\(videoID)&t=\(max(0, Int(seconds)))s")
     }
 
-    static func isValid(_ id: String) -> Bool {
+    nonisolated static func isValid(_ id: String) -> Bool {
         id.count == 11 && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
     }
 

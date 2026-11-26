@@ -83,6 +83,13 @@ struct NowPlayingView: View {
             .onChange(of: video?.time) { _, t in mirror(t) }
             .onChange(of: player.position) { _, t in followSeek(t) }
             .onDisappear { listen(resume: false) }
+            .task(id: "youtube|\(e.id)") {
+                // Give the Mac's answer (through Sync) a moment to arrive; otherwise look on YouTube from the phone.
+                try? await Task.sleep(for: .seconds(2))
+                if !Task.isCancelled, store.youtubeID(for: e) == nil {
+                    await YouTubeFinder.shared.lookUp(e, show: store.show(e.showID))
+                }
+            }
             .task(id: "\(e.id)|\(store.hasTranscript(e))") {
                 transcript = nil
                 if store.hasTranscript(e) { transcript = await store.transcript(for: e) }
