@@ -66,7 +66,9 @@ enum FeedReader {
                 artwork: item.image.flatMap(URL.init(string:)),
                 hasTranscript: false,
                 chapters: [],
-                onMac: false
+                onMac: false,
+                transcriptURL: item.bestTranscript.flatMap { URL(string: $0.url) },
+                transcriptType: item.bestTranscript?.type
             )
         }
         .sorted { $0.published > $1.published }
@@ -75,16 +77,24 @@ enum FeedReader {
                           author: parser.channel.author.trimmingCharacters(in: .whitespacesAndNewlines),
                           summary: parser.channel.summary,
                           artwork: showArt,
-                          episodes: episodes)
+                          episodes: episodes,
+                          language: parser.channel.language.isEmpty ? nil : parser.channel.language)
     }
 }
 
 private final class RSSParser: NSObject, XMLParserDelegate {
-    struct Channel { var title = "", author = "", summary = "", image: String? }
+    struct Channel { var title = "", author = "", summary = "", language = "", image: String? }
     struct Item {
         var title = "", guid = "", summary = "", pubDate = "", duration = "", type = ""
         var enclosure: String?
         var image: String?
+        var transcripts: [(url: String, type: String)] = []
+
+        /// The published transcript PodCraft reads best: timed formats only (WebVTT, SRT, JSON).
+        var bestTranscript: (url: String, type: String)? {
+            transcripts.compactMap { t in TranscriptParser.rank(t.type).map { (t, $0) } }
+                .min { $0.1 < $1.1 }?.0
+        }
     }
 
     var channel = Channel()
@@ -111,6 +121,10 @@ private final class RSSParser: NSObject, XMLParserDelegate {
                (attributes["type"] ?? attributes["medium"] ?? "").hasPrefix("audio") || (attributes["type"] ?? attributes["medium"] ?? "").hasPrefix("video") {
                 current?.enclosure = url
                 current?.type = attributes["type"] ?? attributes["medium"] ?? ""
+            }
+        case "podcast:transcript":
+            if let url = attributes["url"], !url.isEmpty {
+                current?.transcripts.append((url, (attributes["type"] ?? "").lowercased()))
             }
         case "itunes:image":
             if let href = attributes["href"] {
@@ -147,6 +161,7 @@ private final class RSSParser: NSObject, XMLParserDelegate {
             case "itunes:author", "author": if channel.author.isEmpty { channel.author = value }
             case "description", "itunes:summary", "subtitle":
                 if channel.summary.count < value.count { channel.summary = value }
+            case "language": if channel.language.isEmpty { channel.language = value }
             case "url": if inImage, channel.image == nil, !value.isEmpty { channel.image = value }
             case "image": inImage = false
             default: break
