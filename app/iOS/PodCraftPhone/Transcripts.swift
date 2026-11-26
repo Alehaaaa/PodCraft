@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import Observation
 import Speech
+import SwiftUI
 
 // MARK: - Reading published transcripts
 
@@ -397,5 +398,115 @@ private final class ProgressWatcher: NSObject, URLSessionTaskDelegate, @unchecke
             guard let task, task.countOfBytesExpectedToReceive > 0 else { return nil }
             return Double(task.countOfBytesReceived) / Double(task.countOfBytesExpectedToReceive)
         }
+    }
+}
+
+// MARK: - Showing a transcript
+
+/// Transcript lines in their own scroll area, following along as the episode plays. Tap a line to jump there.
+/// Scrolling by hand pauses the following for a few seconds, so another line can be picked.
+struct TranscriptLinesView: View {
+    @Environment(AudioPlayer.self) private var player
+    let lines: [TranscriptLine]
+    var large = false
+    @State private var followAfter = Date.distantPast
+
+    var body: some View {
+        let active = lines.last { $0.start <= player.position + 0.2 }?.start
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: large ? 18 : 12) {
+                    ForEach(Array(lines.enumerated()), id: \.element.id) { i, line in
+                        Button {
+                            followAfter = .distantPast
+                            player.seek(to: line.start)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                if let speaker = line.speaker, i == 0 || lines[i - 1].speaker != speaker {
+                                    Text(speaker.uppercased()).font(.caption.weight(.semibold)).foregroundStyle(Color.podTeal)
+                                }
+                                Text(line.text)
+                                    .font(large ? .title2.weight(.semibold) : .title3.weight(.semibold))
+                                    .foregroundStyle(line.start == active ? Color.primary : Color.secondary.opacity(0.7))
+                                    .multilineTextAlignment(.leading)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .id(line.start)
+                    }
+                }
+                .padding(.vertical, 8)
+                .padding(.trailing, 6)
+            }
+            .scrollIndicators(.visible)
+            .onScrollPhaseChange { _, phase in
+                if phase == .interacting || phase == .decelerating { followAfter = Date().addingTimeInterval(5) }
+            }
+            .onChange(of: active) { _, now in
+                guard let now, Date() >= followAfter else { return }
+                withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(now, anchor: .center) }
+            }
+            .onAppear {
+                if let active { proxy.scrollTo(active, anchor: .center) }
+            }
+        }
+    }
+}
+
+/// The transcript on its own page, pulled up from the player: drag the handle down to go back.
+struct TranscriptSheet: View {
+    @Environment(AudioPlayer.self) private var player
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let lines: [TranscriptLine]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("TRANSCRIPT").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    Text(title).font(.headline).lineLimit(1)
+                }
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "arrow.down.right.and.arrow.up.left").font(.subheadline.weight(.semibold))
+                        .frame(width: 34, height: 34)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Minimize Transcript")
+            }
+            .padding(.horizontal, 20).padding(.top, 22).padding(.bottom, 8)
+
+            TranscriptLinesView(lines: lines, large: true)
+                .padding(.horizontal, 20)
+
+            HStack(spacing: 28) {
+                Text(Fmt.clock(player.position)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    .frame(width: 64, alignment: .leading)
+                Spacer()
+                Button { player.skip(-15) } label: { Image(systemName: "gobackward.15").font(.title2) }
+                    .accessibilityLabel("Back 15 Seconds")
+                Button { player.togglePlay() } label: {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.title)
+                        .contentTransition(.symbolEffect(.replace))
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
+                Button { player.skip(30) } label: { Image(systemName: "goforward.30").font(.title2) }
+                    .accessibilityLabel("Forward 30 Seconds")
+                Spacer()
+                Text("−" + Fmt.clock(max(0, player.duration - player.position))).font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 20).padding(.vertical, 12)
+            .background(.bar)
+        }
+        .presentationDetents([.large, .medium])
+        .presentationDragIndicator(.visible)
+        .presentationBackground(.regularMaterial)
     }
 }

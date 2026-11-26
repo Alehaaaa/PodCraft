@@ -58,6 +58,7 @@ struct NowPlayingView: View {
     @State private var transcript: [TranscriptLine]?
     /// The episode whose transcript finished loading (nil while it loads).
     @State private var transcriptLoaded: String?
+    @State private var transcriptExpanded = false
     @State private var scrubbing: Double?
     /// The episode's YouTube upload, while it plays in place of the audio.
     @State private var video: YouTubeVideo?
@@ -478,7 +479,23 @@ struct NowPlayingView: View {
         VStack(alignment: .leading, spacing: 14) {
             if service.isRunning(e.id), let phase { transcribingStatus(e, phase: phase) }
             if !lines.isEmpty {
-                transcriptList(lines, proxy: proxy)
+                HStack {
+                    Text("Tap a line to jump there").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button { transcriptExpanded = true } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right").font(.subheadline.weight(.semibold))
+                            .frame(width: 32, height: 32)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Expand Transcript")
+                }
+                TranscriptLinesView(lines: lines)
+                    .frame(height: 340)
+                    .sheet(isPresented: $transcriptExpanded) {
+                        TranscriptSheet(title: e.title, lines: transcript ?? store.transcripts.lines[e.id] ?? [])
+                            .environment(player)
+                    }
             } else if transcriptLoaded != e.id {
                 ProgressView("Loading Transcript…").frame(maxWidth: .infinity, minHeight: 120)
             } else if !service.isRunning(e.id) {
@@ -526,31 +543,6 @@ struct NowPlayingView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
-    }
-
-    private func transcriptList(_ lines: [TranscriptLine], proxy: ScrollViewProxy) -> some View {
-        let active = lines.last { $0.start <= player.position + 0.2 }?.start
-        return LazyVStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(lines.enumerated()), id: \.element.id) { i, line in
-                Button { player.seek(to: line.start) } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if let speaker = line.speaker, i == 0 || lines[i - 1].speaker != speaker {
-                            Text(speaker.uppercased()).font(.caption.weight(.semibold)).foregroundStyle(Color.podTeal)
-                        }
-                        Text(line.text)
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(line.start == active ? Color.primary : Color.secondary.opacity(0.7))
-                            .multilineTextAlignment(.leading)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-                .id(line.start)
-            }
-        }
-        .onChange(of: active) { _, now in
-            if let now { withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(now, anchor: .center) } }
-        }
     }
 
     private func notes(_ e: RemoteEpisode) -> some View {
