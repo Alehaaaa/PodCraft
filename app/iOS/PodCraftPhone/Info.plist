@@ -35,6 +35,8 @@
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>PodCraft plays the shows from PodCraft on your Mac over your network.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>PodCraft transcribes episodes on your iPhone when a show doesn’t publish a transcript. The audio never leaves your iPhone.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

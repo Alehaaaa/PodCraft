@@ -56,6 +56,8 @@ struct NowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var panel: Panel?
     @State private var transcript: [TranscriptLine]?
+    /// The episode whose transcript finished loading (nil while it loads).
+    @State private var transcriptLoaded: String?
     @State private var scrubbing: Double?
     /// The episode's YouTube upload, while it plays in place of the audio.
     @State private var video: YouTubeVideo?
@@ -104,7 +106,9 @@ struct NowPlayingView: View {
             }
             .task(id: "\(e.id)|\(store.hasTranscript(e))") {
                 transcript = nil
-                if store.hasTranscript(e) { transcript = await store.transcript(for: e) }
+                transcriptLoaded = nil
+                transcript = await store.transcript(for: e)
+                transcriptLoaded = e.id
             }
         }
     }
@@ -175,6 +179,15 @@ struct NowPlayingView: View {
             ShareLink(item: e.media, subject: Text(e.title)) { Label("Share Episode", systemImage: "square.and.arrow.up") }
             if let id = store.youtubeID(for: e) {
                 Button("Open in YouTube", systemImage: "arrow.up.forward.app") { openInYouTube(id) }
+            }
+            if TranscriptService.canTranscribe, !store.transcripts.isRunning(e.id), transcript == nil || store.transcripts.hasOnDevice(e.id) {
+                Button(store.transcripts.hasOnDevice(e.id) ? "Transcribe Again on iPhone" : "Transcribe on iPhone",
+                       systemImage: "waveform.badge.magnifyingglass") {
+                    store.transcripts.forgetOnDevice(e.id)
+                    transcript = nil
+                    store.transcribe(e)
+                    panel = .transcript
+                }
             }
             if store.isStandalone || !store.skips(for: e).isEmpty {
                 Toggle(isOn: Binding(get: { store.skipSponsors }, set: { store.skipSponsors = $0 })) {
@@ -400,8 +413,11 @@ struct NowPlayingView: View {
     private func available(_ e: RemoteEpisode) -> [Panel] {
         var list: [Panel] = []
         if !player.chapters.isEmpty { list.append(.chapters) }
-        if store.hasTranscript(e) { list.append(.transcript) }
+        // A transcript that's there comes before the notes; the offer to make one comes after them.
+        let hasTranscript = transcript != nil || store.hasAnyTranscript(e) || store.transcripts.isRunning(e.id)
+        if hasTranscript { list.append(.transcript) }
         if !Fmt.plain(e.summary).isEmpty { list.append(.notes) }
+        if !hasTranscript && TranscriptService.canTranscribe { list.append(.transcript) }
         if !store.queuedEpisodes.isEmpty || !store.upNext(after: e).isEmpty { list.append(.upNext) }
         return list
     }
@@ -420,7 +436,7 @@ struct NowPlayingView: View {
                 }
                 switch shown {
                 case .chapters: chapterList
-                case .transcript: transcriptList(proxy: proxy)
+                case .transcript: transcriptPanel(e, proxy: proxy)
                 case .notes: notes(e)
                 case .upNext: upNext(e)
                 }
@@ -455,27 +471,85 @@ struct NowPlayingView: View {
     }
 
     @ViewBuilder
-    private func transcriptList(proxy: ScrollViewProxy) -> some View {
-        if let lines = transcript {
-            let active = lines.last { $0.start <= player.position + 0.2 }?.start
-            LazyVStack(alignment: .leading, spacing: 12) {
-                ForEach(lines) { line in
-                    Button { player.seek(to: line.start) } label: {
+    private func transcriptPanel(_ e: RemoteEpisode, proxy: ScrollViewProxy) -> some View {
+        let service = store.transcripts
+        let phase = service.phases[e.id]
+        let lines = transcript ?? service.lines[e.id] ?? []
+        VStack(alignment: .leading, spacing: 14) {
+            if service.isRunning(e.id), let phase { transcribingStatus(e, phase: phase) }
+            if !lines.isEmpty {
+                transcriptList(lines, proxy: proxy)
+            } else if transcriptLoaded != e.id {
+                ProgressView("Loading Transcript…").frame(maxWidth: .infinity, minHeight: 120)
+            } else if !service.isRunning(e.id) {
+                transcribeOffer(e, failure: { if case .failed(let why) = phase { return why } else { return nil } }())
+            }
+        }
+    }
+
+    /// Progress while this iPhone makes a transcript.
+    private func transcribingStatus(_ e: RemoteEpisode, phase: TranscriptService.Phase) -> some View {
+        let (label, fraction): (String, Double?) = switch phase {
+        case .preparing: ("Getting Ready…", nil)
+        case .downloadingModel: ("Downloading the Speech Model…", nil)
+        case .downloadingAudio(let f): ("Downloading the Episode…", f)
+        case .transcribing(let f): ("Transcribing on iPhone…", f)
+        case .failed: ("", nil)
+        }
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label(label, systemImage: "waveform").font(.subheadline.weight(.semibold))
+                Spacer()
+                if let fraction { Text("\(Int(fraction * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
+                Button("Stop") { store.transcripts.cancel(e.id) }.font(.subheadline.weight(.semibold))
+            }
+            if let fraction { ProgressView(value: fraction).tint(Color.podTeal) } else { ProgressView().frame(maxWidth: .infinity) }
+        }
+    }
+
+    /// No transcript yet: offer to make one on this iPhone.
+    private func transcribeOffer(_ e: RemoteEpisode, failure: String?) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: failure == nil ? "waveform.badge.magnifyingglass" : "exclamationmark.triangle")
+                .font(.title).foregroundStyle(failure == nil ? Color.podTeal : .orange)
+            Text(failure == nil ? "No Transcript" : "Couldn’t Transcribe").font(.headline)
+            Text(failure ?? "This show doesn’t publish one. PodCraft can transcribe the episode on this iPhone with Apple’s on-device speech model. The audio never leaves your iPhone.")
+                .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            if TranscriptService.canTranscribe {
+                Button { store.transcribe(e) } label: {
+                    Label(failure == nil ? "Transcribe on iPhone" : "Try Again", systemImage: "waveform")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent).tint(Color.podTeal)
+                .padding(.top, 4)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+    }
+
+    private func transcriptList(_ lines: [TranscriptLine], proxy: ScrollViewProxy) -> some View {
+        let active = lines.last { $0.start <= player.position + 0.2 }?.start
+        return LazyVStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(lines.enumerated()), id: \.element.id) { i, line in
+                Button { player.seek(to: line.start) } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let speaker = line.speaker, i == 0 || lines[i - 1].speaker != speaker {
+                            Text(speaker.uppercased()).font(.caption.weight(.semibold)).foregroundStyle(Color.podTeal)
+                        }
                         Text(line.text)
                             .font(.title3.weight(.semibold))
                             .foregroundStyle(line.start == active ? Color.primary : Color.secondary.opacity(0.7))
                             .multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .buttonStyle(.plain)
-                    .id(line.start)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .buttonStyle(.plain)
+                .id(line.start)
             }
-            .onChange(of: active) { _, now in
-                if let now { withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(now, anchor: .center) } }
-            }
-        } else {
-            ProgressView("Loading Transcript…").frame(maxWidth: .infinity, minHeight: 120)
+        }
+        .onChange(of: active) { _, now in
+            if let now { withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(now, anchor: .center) } }
         }
     }
 
