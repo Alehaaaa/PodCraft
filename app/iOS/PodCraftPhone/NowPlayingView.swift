@@ -130,8 +130,11 @@ struct NowPlayingView: View {
                     }
                     .foregroundStyle(.white)
                     .padding(20)
-                } else if !video.isReady {
-                    ProgressView().tint(.white)
+                } else if !video.hasStarted || video.ended {
+                    // Covers YouTube's own start and end screens.
+                    Artwork(url: e.artwork ?? store.show(e.showID)?.artwork, size: nil, radius: 0)
+                        .overlay(Color.black.opacity(0.35))
+                    if !video.ended { ProgressView().tint(.white) }
                 }
             }
             .aspectRatio(16 / 9, contentMode: .fit)
