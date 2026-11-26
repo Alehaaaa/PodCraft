@@ -20,6 +20,7 @@
 		A1000000000000000000B00B /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F013 /* SettingsViews.swift */; };
 		A1000000000000000000B00C /* SyncCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F014 /* SyncCore.swift */; };
 		A1000000000000000000B00D /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F015 /* ImageCache.swift */; };
+		A10000000000000000007B01 /* Transcripts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000007F01 /* Transcripts.swift */; };
 		A1000000000000000000BD01 /* Downloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000FD01 /* Downloads.swift */; };
 		A1000000000000000000B00E /* EpisodeActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F016 /* EpisodeActions.swift */; };
 /* End PBXBuildFile section */
@@ -40,6 +41,7 @@
 		A1000000000000000000F013 /* SettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViews.swift; sourceTree = "<group>"; };
 		A1000000000000000000F014 /* SyncCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SyncCore.swift; path = ../Sources/PodCraft/Sync/SyncCore.swift; sourceTree = SOURCE_ROOT; };
 		A1000000000000000000F015 /* ImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCache.swift; sourceTree = "<group>"; };
+		A10000000000000000007F01 /* Transcripts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transcripts.swift; sourceTree = "<group>"; };
 		A1000000000000000000FD01 /* Downloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Downloads.swift; sourceTree = "<group>"; };
 		A1000000000000000000F016 /* EpisodeActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeActions.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -74,6 +76,7 @@
 				A1000000000000000000F016 /* EpisodeActions.swift */,
 				A1000000000000000000F010 /* Updater.swift */,
 				A1000000000000000000F015 /* ImageCache.swift */,
+				A10000000000000000007F01 /* Transcripts.swift */,
 				A1000000000000000000FD01 /* Downloads.swift */,
 				A1000000000000000000F014 /* SyncCore.swift */,
 				A1000000000000000000F013 /* SettingsViews.swift */,
@@ -166,6 +169,7 @@
 				A1000000000000000000B005 /* NowPlayingView.swift in Sources */,
 				A1000000000000000000B008 /* Updater.swift in Sources */,
 				A1000000000000000000B00D /* ImageCache.swift in Sources */,
+				A10000000000000000007B01 /* Transcripts.swift in Sources */,
 				A1000000000000000000BD01 /* Downloads.swift in Sources */,
 				A1000000000000000000B00E /* EpisodeActions.swift in Sources */,
 				A1000000000000000000B00C /* SyncCore.swift in Sources */,
