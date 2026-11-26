@@ -7,6 +7,7 @@ extension Color {
 
 @main
 struct PodCraftPhoneApp: App {
+    @UIApplicationDelegateAdaptor(PodCraftAppDelegate.self) private var appDelegate
     @State private var store: Store
     @State private var player: AudioPlayer
     @State private var updater = Updater()
@@ -23,6 +24,7 @@ struct PodCraftPhoneApp: App {
                 .environment(store)
                 .environment(player)
                 .environment(updater)
+                .environment(Downloads.shared)
                 .tint(.podTeal)
                 // The QR code in PodCraft's Settings on the Mac opens podcraft://connect?…
                 .onOpenURL { store.open($0) }
@@ -57,6 +59,7 @@ struct RootView: View {
             if now == .active {
                 Task {
                     await store.refresh()
+                    Downloads.shared.cleanUp(store: store, playing: player.episode?.id)
                     await updater.checkAutomatically(server: store.isStandalone ? "" : store.server)
                 }
             }
@@ -232,11 +235,12 @@ struct ContinueCard: View {
 
 /// Everything on the Mac: all shows, the channels (feeds) built there, what's cleaned and ready, and the latest.
 enum BrowseList: Hashable {
-    case allShows, allChannels, readyOnMac, latest
+    case allShows, allChannels, readyOnMac, latest, downloads
 }
 
 struct BrowseView: View {
     @Environment(Store.self) private var store
+    @Environment(Downloads.self) private var downloads
 
     var body: some View {
         NavigationStack {
@@ -265,6 +269,14 @@ struct BrowseView: View {
                             BrowseSection(title: "Ready on Your Mac", count: ready.count, destination: .readyOnMac,
                                           note: "Sponsors removed, with chapters.") {
                                 EpisodeStack(episodes: Array(ready.prefix(5)))
+                            }
+                        }
+                        let downloaded = downloads.episodes(in: store)
+                        if !downloaded.isEmpty || !downloads.active.isEmpty {
+                            BrowseSection(title: "Downloads", count: downloaded.count, destination: .downloads,
+                                          note: downloads.active.isEmpty ? "On this iPhone, to play offline."
+                                              : "\(downloads.active.count) downloading.") {
+                                EpisodeStack(episodes: Array(downloaded.prefix(5)))
                             }
                         }
                         BrowseSection(title: "Latest Episodes", count: store.latest.count, destination: .latest) {
@@ -388,6 +400,8 @@ struct BrowseListView: View {
                 EpisodeStack(episodes: store.readyOnMac)
             case .latest:
                 EpisodeStack(episodes: Array(store.latest.prefix(200)))
+            case .downloads:
+                DownloadsList()
             }
         }
         .navigationTitle(title)
@@ -399,6 +413,7 @@ struct BrowseListView: View {
         case .allChannels: "Channels"
         case .readyOnMac: "Ready on Your Mac"
         case .latest: "Latest Episodes"
+        case .downloads: "Downloads"
         }
     }
 }
@@ -533,22 +548,25 @@ struct EpisodeRow: View {
                 if !summary.isEmpty {
                     Text(summary).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
                 }
-                Button {
-                    if isCurrent { player.togglePlay() } else { player.play(episode) }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: isCurrent && player.isPlaying ? "pause.fill" : "play.fill")
-                        if store.isPlayed(episode) { Text("Played") }
-                        else if store.position(of: episode) > 15 {
-                            ProgressView(value: store.position(of: episode), total: max(episode.duration, 1))
-                                .frame(width: 34).tint(.podTeal)
-                            Text("\(Fmt.remaining(store.remaining(episode))) left")
-                        } else { Text(Fmt.remaining(episode.duration)) }
+                HStack(spacing: 8) {
+                    Button {
+                        if isCurrent { player.togglePlay() } else { player.play(episode) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: isCurrent && player.isPlaying ? "pause.fill" : "play.fill")
+                            if store.isPlayed(episode) { Text("Played") }
+                            else if store.position(of: episode) > 15 {
+                                ProgressView(value: store.position(of: episode), total: max(episode.duration, 1))
+                                    .frame(width: 34).tint(.podTeal)
+                                Text("\(Fmt.remaining(store.remaining(episode))) left")
+                            } else { Text(Fmt.remaining(episode.duration)) }
+                        }
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 12).padding(.vertical, 6)
                     }
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .buttonStyle(.glass)
+                    DownloadButton(episode: episode)
                 }
-                .buttonStyle(.glass)
                 .padding(.top, 4)
             }
             Spacer(minLength: 0)
@@ -566,6 +584,7 @@ struct EpisodeRow: View {
             } else {
                 Button("Mark as Played", systemImage: "checkmark.circle") { store.setPlayed(episode, true) }
             }
+            DownloadMenuItems(episode: episode)
         }
     }
 }
