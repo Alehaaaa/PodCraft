@@ -19,6 +19,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "1.5",
+          "buildVersion": "202611260913",
+          "date": "2026-11-26",
+          "localizedDescription": "iPhone 1.5: downloads, transcripts, Up Next and swipes, and YouTube videos",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/PodCraft/main/altstore/PodCraft-1.5-202611260913.ipa",
+          "size": 7293904,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "1.4",
           "buildVersion": "202611252031",
           "date": "2026-11-25",
