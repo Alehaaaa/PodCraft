@@ -24,6 +24,8 @@ struct RemoteShow: Codable, Identifiable, Hashable {
     var summary: String
     var artwork: URL?
     var episodes: [RemoteEpisode]
+    /// The feed's language ("en-us"), for transcribing on the phone. Not sent by the Mac.
+    var language: String?
 }
 
 struct RemoteChapter: Codable, Hashable, Identifiable {
@@ -50,6 +52,9 @@ struct RemoteEpisode: Codable, Identifiable, Hashable {
     var onMac: Bool?
     /// The same episode on the show's official YouTube channel (a video id), when the Mac verified one.
     var youtube: String? = nil
+    /// A transcript the show publishes (<podcast:transcript>), and its type ("text/vtt", "application/json", …).
+    var transcriptURL: URL?
+    var transcriptType: String?
 
     var isOnMac: Bool { onMac ?? true }
 }
@@ -58,6 +63,8 @@ struct TranscriptLine: Codable, Hashable, Identifiable {
     var start: Double
     var end: Double
     var text: String
+    /// Who is speaking, when the transcript says.
+    var speaker: String? = nil
     var id: Double { start }
 }
 

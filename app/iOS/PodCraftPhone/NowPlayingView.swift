@@ -25,6 +25,18 @@ struct MiniPlayer: View {
                     Image(systemName: "goforward.30").font(.title3).frame(width: 34, height: 34)
                 }
                 .accessibilityLabel("Forward 30 Seconds")
+            } else if let next = store.queuedEpisodes.first {
+                // Nothing playing yet, but Up Next has something lined up.
+                Artwork(url: next.artwork ?? store.show(next.showID)?.artwork, size: 36, radius: 7)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(next.title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                    Text("Up Next").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Button { player.play(next) } label: {
+                    Image(systemName: "play.fill").font(.title3).frame(width: 34, height: 34)
+                }
+                .accessibilityLabel("Play Up Next")
             } else {
                 Image(systemName: "headphones").foregroundStyle(.secondary)
                 Text("Nothing Playing").font(.subheadline).foregroundStyle(.secondary)
@@ -44,6 +56,8 @@ struct NowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var panel: Panel?
     @State private var transcript: [TranscriptLine]?
+    /// The episode whose transcript finished loading (nil while it loads).
+    @State private var transcriptLoaded: String?
     @State private var scrubbing: Double?
     /// The episode's YouTube upload, while it plays in place of the audio.
     @State private var video: YouTubeVideo?
@@ -85,7 +99,9 @@ struct NowPlayingView: View {
             .onDisappear { listen(resume: false) }
             .task(id: "\(e.id)|\(store.hasTranscript(e))") {
                 transcript = nil
-                if store.hasTranscript(e) { transcript = await store.transcript(for: e) }
+                transcriptLoaded = nil
+                transcript = await store.transcript(for: e)
+                transcriptLoaded = e.id
             }
         }
     }
@@ -156,6 +172,15 @@ struct NowPlayingView: View {
             ShareLink(item: e.media, subject: Text(e.title)) { Label("Share Episode", systemImage: "square.and.arrow.up") }
             if let id = store.youtubeID(for: e) {
                 Button("Open in YouTube", systemImage: "arrow.up.forward.app") { openInYouTube(id) }
+            }
+            if TranscriptService.canTranscribe, !store.transcripts.isRunning(e.id), transcript == nil || store.transcripts.hasOnDevice(e.id) {
+                Button(store.transcripts.hasOnDevice(e.id) ? "Transcribe Again on iPhone" : "Transcribe on iPhone",
+                       systemImage: "waveform.badge.magnifyingglass") {
+                    store.transcripts.forgetOnDevice(e.id)
+                    transcript = nil
+                    store.transcribe(e)
+                    panel = .transcript
+                }
             }
             if store.isStandalone || !store.skips(for: e).isEmpty {
                 Toggle(isOn: Binding(get: { store.skipSponsors }, set: { store.skipSponsors = $0 })) {
@@ -381,9 +406,12 @@ struct NowPlayingView: View {
     private func available(_ e: RemoteEpisode) -> [Panel] {
         var list: [Panel] = []
         if !player.chapters.isEmpty { list.append(.chapters) }
-        if store.hasTranscript(e) { list.append(.transcript) }
+        // A transcript that's there comes before the notes; the offer to make one comes after them.
+        let hasTranscript = transcript != nil || store.hasAnyTranscript(e) || store.transcripts.isRunning(e.id)
+        if hasTranscript { list.append(.transcript) }
         if !Fmt.plain(e.summary).isEmpty { list.append(.notes) }
-        if !store.upNext(after: e).isEmpty { list.append(.upNext) }
+        if !hasTranscript && TranscriptService.canTranscribe { list.append(.transcript) }
+        if !store.queuedEpisodes.isEmpty || !store.upNext(after: e).isEmpty { list.append(.upNext) }
         return list
     }
 
@@ -401,7 +429,7 @@ struct NowPlayingView: View {
                 }
                 switch shown {
                 case .chapters: chapterList
-                case .transcript: transcriptList(proxy: proxy)
+                case .transcript: transcriptPanel(e, proxy: proxy)
                 case .notes: notes(e)
                 case .upNext: upNext(e)
                 }
@@ -436,27 +464,85 @@ struct NowPlayingView: View {
     }
 
     @ViewBuilder
-    private func transcriptList(proxy: ScrollViewProxy) -> some View {
-        if let lines = transcript {
-            let active = lines.last { $0.start <= player.position + 0.2 }?.start
-            LazyVStack(alignment: .leading, spacing: 12) {
-                ForEach(lines) { line in
-                    Button { player.seek(to: line.start) } label: {
+    private func transcriptPanel(_ e: RemoteEpisode, proxy: ScrollViewProxy) -> some View {
+        let service = store.transcripts
+        let phase = service.phases[e.id]
+        let lines = transcript ?? service.lines[e.id] ?? []
+        VStack(alignment: .leading, spacing: 14) {
+            if service.isRunning(e.id), let phase { transcribingStatus(e, phase: phase) }
+            if !lines.isEmpty {
+                transcriptList(lines, proxy: proxy)
+            } else if transcriptLoaded != e.id {
+                ProgressView("Loading Transcript…").frame(maxWidth: .infinity, minHeight: 120)
+            } else if !service.isRunning(e.id) {
+                transcribeOffer(e, failure: { if case .failed(let why) = phase { return why } else { return nil } }())
+            }
+        }
+    }
+
+    /// Progress while this iPhone makes a transcript.
+    private func transcribingStatus(_ e: RemoteEpisode, phase: TranscriptService.Phase) -> some View {
+        let (label, fraction): (String, Double?) = switch phase {
+        case .preparing: ("Getting Ready…", nil)
+        case .downloadingModel: ("Downloading the Speech Model…", nil)
+        case .downloadingAudio(let f): ("Downloading the Episode…", f)
+        case .transcribing(let f): ("Transcribing on iPhone…", f)
+        case .failed: ("", nil)
+        }
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label(label, systemImage: "waveform").font(.subheadline.weight(.semibold))
+                Spacer()
+                if let fraction { Text("\(Int(fraction * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
+                Button("Stop") { store.transcripts.cancel(e.id) }.font(.subheadline.weight(.semibold))
+            }
+            if let fraction { ProgressView(value: fraction).tint(Color.podTeal) } else { ProgressView().frame(maxWidth: .infinity) }
+        }
+    }
+
+    /// No transcript yet: offer to make one on this iPhone.
+    private func transcribeOffer(_ e: RemoteEpisode, failure: String?) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: failure == nil ? "waveform.badge.magnifyingglass" : "exclamationmark.triangle")
+                .font(.title).foregroundStyle(failure == nil ? Color.podTeal : .orange)
+            Text(failure == nil ? "No Transcript" : "Couldn’t Transcribe").font(.headline)
+            Text(failure ?? "This show doesn’t publish one. PodCraft can transcribe the episode on this iPhone with Apple’s on-device speech model. The audio never leaves your iPhone.")
+                .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            if TranscriptService.canTranscribe {
+                Button { store.transcribe(e) } label: {
+                    Label(failure == nil ? "Transcribe on iPhone" : "Try Again", systemImage: "waveform")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent).tint(Color.podTeal)
+                .padding(.top, 4)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+    }
+
+    private func transcriptList(_ lines: [TranscriptLine], proxy: ScrollViewProxy) -> some View {
+        let active = lines.last { $0.start <= player.position + 0.2 }?.start
+        return LazyVStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(lines.enumerated()), id: \.element.id) { i, line in
+                Button { player.seek(to: line.start) } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let speaker = line.speaker, i == 0 || lines[i - 1].speaker != speaker {
+                            Text(speaker.uppercased()).font(.caption.weight(.semibold)).foregroundStyle(Color.podTeal)
+                        }
                         Text(line.text)
                             .font(.title3.weight(.semibold))
                             .foregroundStyle(line.start == active ? Color.primary : Color.secondary.opacity(0.7))
                             .multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .buttonStyle(.plain)
-                    .id(line.start)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .buttonStyle(.plain)
+                .id(line.start)
             }
-            .onChange(of: active) { _, now in
-                if let now { withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(now, anchor: .center) } }
-            }
-        } else {
-            ProgressView("Loading Transcript…").frame(maxWidth: .infinity, minHeight: 120)
+        }
+        .onChange(of: active) { _, now in
+            if let now { withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(now, anchor: .center) } }
         }
     }
 
@@ -473,26 +559,64 @@ struct NowPlayingView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The listener's queue first, then more from the same show.
     private func upNext(_ e: RemoteEpisode) -> some View {
-        VStack(spacing: 0) {
-            let list = store.upNext(after: e)
-            ForEach(Array(list.enumerated()), id: \.element.id) { i, next in
-                Button { player.play(next) } label: {
-                    HStack(spacing: 12) {
-                        Artwork(url: next.artwork ?? store.show(next.showID)?.artwork, size: 48, radius: 8)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(Fmt.date(next.published)).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                            Text(next.title).font(.subheadline.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
-                        }
-                        Spacer()
-                        Text(Fmt.remaining(store.remaining(next))).font(.caption).foregroundStyle(.secondary)
-                        Image(systemName: "play.circle.fill").font(.title2).foregroundStyle(Color.podTeal)
-                    }
-                    .padding(.vertical, 8)
-                    .contentShape(Rectangle())
+        let queued = store.queuedEpisodes
+        let more = store.upNext(after: e).filter { !store.isQueued($0) }
+        return VStack(alignment: .leading, spacing: 0) {
+            if !queued.isEmpty {
+                HStack {
+                    Text("Up Next").font(.headline)
+                    Spacer()
+                    Button("Clear") { withAnimation { store.clearQueue() } }
+                        .font(.subheadline.weight(.semibold))
                 }
-                .buttonStyle(.plain)
-                if i < list.count - 1 { Divider() }
+                .padding(.bottom, 4)
+                ForEach(Array(queued.enumerated()), id: \.element.id) { i, next in
+                    upNextRow(next, queued: true)
+                    if i < queued.count - 1 { Divider() }
+                }
+            }
+            if !more.isEmpty {
+                Text("From This Show").font(.headline)
+                    .padding(.top, queued.isEmpty ? 0 : 18).padding(.bottom, 4)
+                ForEach(Array(more.enumerated()), id: \.element.id) { i, next in
+                    upNextRow(next, queued: false)
+                    if i < more.count - 1 { Divider() }
+                }
+            }
+        }
+    }
+
+    private func upNextRow(_ next: RemoteEpisode, queued: Bool) -> some View {
+        HStack(spacing: 12) {
+            Button { player.play(next) } label: {
+                HStack(spacing: 12) {
+                    Artwork(url: next.artwork ?? store.show(next.showID)?.artwork, size: 48, radius: 8)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(Fmt.date(next.published)).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                        Text(next.title).font(.subheadline.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
+                    }
+                    Spacer()
+                    Text(Fmt.remaining(store.remaining(next))).font(.caption).foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Button {
+                withAnimation { queued ? store.dequeue(next.id) : store.enqueue(next) }
+            } label: {
+                Image(systemName: queued ? "minus.circle.fill" : "plus.circle.fill")
+                    .font(.title2).foregroundStyle(queued ? Color.secondary : Color.podTeal)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(queued ? "Remove from Up Next" : "Add to Up Next")
+        }
+        .padding(.vertical, 8)
+        .contextMenu {
+            EpisodeMenu(episode: next, store: store, player: player)
+            if queued, store.queue.first != next.id {
+                Button("Move to Front", systemImage: "arrow.up.to.line") { store.playNext(next) }
             }
         }
     }
