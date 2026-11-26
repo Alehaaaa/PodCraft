@@ -192,3 +192,140 @@ struct ShowMenu: View {
         }
     }
 }
+
+// MARK: - Up Next queue
+
+struct UpNextRoute: Hashable {}
+
+/// Up Next on its own page (from Home): the whole queue, to reorder and edit.
+struct UpNextView: View {
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        Group {
+            if store.queuedEpisodes.isEmpty {
+                ContentUnavailableView("Nothing Up Next", systemImage: "text.badge.plus",
+                                       description: Text("Swipe right on an episode to add it here."))
+            } else {
+                QueueList(current: nil, fitsContent: false)
+            }
+        }
+        .navigationTitle("Up Next")
+        .toolbar {
+            if !store.queuedEpisodes.isEmpty {
+                Button("Clear") { withAnimation { store.clearQueue() } }
+            }
+        }
+    }
+}
+
+/// The queue like a music app's: hold a row and drag to reorder, swipe right to play it next,
+/// swipe left to take it off. Below it, more from the current show, which swipe onto the queue.
+/// With `fitsContent` the list is as tall as its rows and doesn't scroll, for the player's panel.
+struct QueueList: View {
+    @Environment(Store.self) private var store
+    @Environment(AudioPlayer.self) private var player
+    let current: RemoteEpisode?
+    var fitsContent = true
+
+    private static let rowHeight: CGFloat = 72
+    private static let headerHeight: CGFloat = 40
+
+    var body: some View {
+        let queued = store.queuedEpisodes
+        let more = current.map { e in store.upNext(after: e).filter { !store.isQueued($0) } } ?? []
+        let headers = (fitsContent && !queued.isEmpty ? 1 : 0) + (more.isEmpty ? 0 : 1)
+        List {
+            if !queued.isEmpty {
+                if fitsContent {
+                    header("Up Next") {
+                        Button("Clear") { withAnimation { store.clearQueue() } }
+                            .font(.subheadline.weight(.semibold)).buttonStyle(.borderless)
+                    }
+                }
+                ForEach(queued) { e in
+                    row(e, queued: true)
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            Button { withAnimation { store.playNext(e) } } label: {
+                                Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                            }
+                            .tint(.podTeal)
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) { withAnimation { store.dequeue(e.id) } } label: {
+                                Label("Remove", systemImage: "text.badge.minus")
+                            }
+                        }
+                }
+                .onMove { store.moveQueue(from: $0, to: $1) }
+            }
+            if !more.isEmpty {
+                header("From This Show") { EmptyView() }
+                ForEach(more) { e in
+                    row(e, queued: false)
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            Button { withAnimation { store.enqueue(e) } } label: {
+                                Label("Up Next", systemImage: "text.badge.plus")
+                            }
+                            .tint(.podTeal)
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button { withAnimation { store.playNext(e) } } label: {
+                                Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                            }
+                            .tint(.indigo)
+                        }
+                }
+            }
+        }
+        .listStyle(.plain)
+        .environment(\.defaultMinListRowHeight, 0)
+        .scrollContentBackground(fitsContent ? .hidden : .automatic)
+        .scrollDisabled(fitsContent)
+        .frame(height: fitsContent
+               ? CGFloat(queued.count + more.count) * Self.rowHeight + CGFloat(headers) * Self.headerHeight
+               : nil)
+        .animation(.default, value: store.queue)
+    }
+
+    private func header<Trailing: View>(_ title: String, @ViewBuilder trailing: () -> Trailing) -> some View {
+        HStack {
+            Text(title).font(.headline)
+            Spacer()
+            trailing()
+        }
+        .frame(height: Self.headerHeight, alignment: .bottom)
+        .listRowInsets(EdgeInsets(top: 0, leading: fitsContent ? 0 : 16, bottom: 4, trailing: fitsContent ? 0 : 16))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .moveDisabled(true)
+    }
+
+    private func row(_ e: RemoteEpisode, queued: Bool) -> some View {
+        HStack(spacing: 12) {
+            Artwork(url: e.artwork ?? store.show(e.showID)?.artwork, size: 48, radius: 8)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(store.show(e.showID)?.title.uppercased() ?? Fmt.date(e.published))
+                    .font(.caption2.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                Text(e.title).font(.subheadline.weight(.semibold)).lineLimit(2)
+            }
+            Spacer(minLength: 4)
+            Text(Fmt.remaining(store.remaining(e))).font(.caption).foregroundStyle(.secondary)
+            if queued {
+                Image(systemName: "line.3.horizontal").font(.body.weight(.semibold)).foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(height: Self.rowHeight - 12)
+        .contentShape(Rectangle())
+        .onTapGesture { player.play(e) }
+        .listRowInsets(EdgeInsets(top: 6, leading: fitsContent ? 0 : 16, bottom: 6, trailing: fitsContent ? 0 : 16))
+        .listRowBackground(Color.clear)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: "Play Next") { store.playNext(e) }
+        .accessibilityAction(named: queued ? "Remove from Up Next" : "Add to Up Next") {
+            queued ? store.dequeue(e.id) : store.enqueue(e)
+        }
+    }
+}

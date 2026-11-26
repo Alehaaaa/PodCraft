@@ -481,6 +481,15 @@ final class Store {
         saveQueue()
     }
 
+    /// Reorders Up Next by positions in `queuedEpisodes` (what the listener sees), keeping any hidden ids at the end.
+    func moveQueue(from source: IndexSet, to destination: Int) {
+        var visible = queuedEpisodes.map(\.id)
+        visible.move(fromOffsets: source, toOffset: destination)
+        let shown = Set(visible)
+        queue = visible + queue.filter { !shown.contains($0) }
+        saveQueue()
+    }
+
     func clearQueue() {
         queue = []
         saveQueue()

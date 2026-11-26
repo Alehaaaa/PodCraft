@@ -624,66 +624,9 @@ struct NowPlayingView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The listener's queue first, then more from the same show.
+    /// The listener's queue first (hold and drag to reorder, swipe to play next or remove), then more from the same show.
     private func upNext(_ e: RemoteEpisode) -> some View {
-        let queued = store.queuedEpisodes
-        let more = store.upNext(after: e).filter { !store.isQueued($0) }
-        return VStack(alignment: .leading, spacing: 0) {
-            if !queued.isEmpty {
-                HStack {
-                    Text("Up Next").font(.headline)
-                    Spacer()
-                    Button("Clear") { withAnimation { store.clearQueue() } }
-                        .font(.subheadline.weight(.semibold))
-                }
-                .padding(.bottom, 4)
-                ForEach(Array(queued.enumerated()), id: \.element.id) { i, next in
-                    upNextRow(next, queued: true)
-                    if i < queued.count - 1 { Divider() }
-                }
-            }
-            if !more.isEmpty {
-                Text("From This Show").font(.headline)
-                    .padding(.top, queued.isEmpty ? 0 : 18).padding(.bottom, 4)
-                ForEach(Array(more.enumerated()), id: \.element.id) { i, next in
-                    upNextRow(next, queued: false)
-                    if i < more.count - 1 { Divider() }
-                }
-            }
-        }
-    }
-
-    private func upNextRow(_ next: RemoteEpisode, queued: Bool) -> some View {
-        HStack(spacing: 12) {
-            Button { player.play(next) } label: {
-                HStack(spacing: 12) {
-                    Artwork(url: next.artwork ?? store.show(next.showID)?.artwork, size: 48, radius: 8)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(Fmt.date(next.published)).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                        Text(next.title).font(.subheadline.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
-                    }
-                    Spacer()
-                    Text(Fmt.remaining(store.remaining(next))).font(.caption).foregroundStyle(.secondary)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            Button {
-                withAnimation { queued ? store.dequeue(next.id) : store.enqueue(next) }
-            } label: {
-                Image(systemName: queued ? "minus.circle.fill" : "plus.circle.fill")
-                    .font(.title2).foregroundStyle(queued ? Color.secondary : Color.podTeal)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(queued ? "Remove from Up Next" : "Add to Up Next")
-        }
-        .padding(.vertical, 8)
-        .contextMenu {
-            EpisodeMenu(episode: next, store: store, player: player)
-            if queued, store.queue.first != next.id {
-                Button("Move to Front", systemImage: "arrow.up.to.line") { store.playNext(next) }
-            }
-        }
+        QueueList(current: e)
     }
 
     // MARK: Around

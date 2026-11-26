@@ -132,7 +132,17 @@ struct HomeView: View {
                     } else {
                         let queued = store.queuedEpisodes
                         if !queued.isEmpty {
-                            SectionTitle("Up Next")
+                            NavigationLink(value: UpNextRoute()) {
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                    Text("Up Next").font(.title2.bold()).foregroundStyle(.primary)
+                                    Image(systemName: "chevron.right").font(.headline.weight(.semibold)).foregroundStyle(.secondary)
+                                    Spacer()
+                                    Text("\(queued.count)").font(.subheadline).foregroundStyle(.secondary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal)
+                            .accessibilityHint("Reorder and edit Up Next")
                             ScrollView(.horizontal, showsIndicators: false) {
                                 LazyHStack(spacing: 14) {
                                     ForEach(queued.prefix(20)) { ContinueCard(episode: $0, inQueue: true) }
@@ -177,6 +187,7 @@ struct HomeView: View {
             }
             .refreshable { await store.refresh() }
             .navigationDestination(for: RemoteShow.self) { ShowView(showID: $0.id) }
+            .navigationDestination(for: UpNextRoute.self) { _ in UpNextView() }
         }
     }
 }
