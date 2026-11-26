@@ -48,6 +48,8 @@ struct RemoteEpisode: Codable, Identifiable, Hashable {
     var chapters: [RemoteChapter]
     /// Downloaded and cleaned on the Mac (sponsors cut, chapters); otherwise it streams as the show published it.
     var onMac: Bool?
+    /// The same episode on the show's official YouTube channel (a video id), when the Mac verified one.
+    var youtube: String? = nil
 
     var isOnMac: Bool { onMac ?? true }
 }

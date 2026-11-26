@@ -59,6 +59,8 @@ enum PhoneAPI {
             // Downloaded and cleaned on the Mac (sponsors removed, chapters); otherwise streamed as published.
             "onMac": e.stage == .ready,
         ]
+        // The verified upload on the show's official YouTube channel, so the phone can switch to the video.
+        if let youtube = MacSync.verifiedYouTubeID(e) { row["youtube"] = youtube }
         row["chapters"] = e.chapters.sorted { $0.start < $1.start }.map { ["start": $0.start, "title": $0.title] }
         return row
     }

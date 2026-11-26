@@ -282,22 +282,27 @@ final class MacSync {
         var published = state.extras ?? [:]
         let candidates = keyed(library)
             .map { (episode: library.episodes[$0.index], key: $0.key) }
-            .filter { $0.episode.stage == .ready && (!$0.episode.transcript.isEmpty || !$0.episode.chapters.isEmpty || !$0.episode.cuts.isEmpty) }
+            .filter { Self.hasProcessedExtras($0.episode) || Self.verifiedYouTubeID($0.episode) != nil }
             .sorted { $0.episode.published > $1.episode.published }
             .prefix(60)
         var uploads = 0
         for (e, key) in candidates where uploads < 8 {
-            let fp = "\(e.transcript.count)|\(e.chapters.count)|\(e.cuts.count)|\(e.analysisFingerprint ?? "")"
-            guard published[key]?.fingerprint != fp else { continue }
+            let processed = Self.hasProcessedExtras(e)
+            let youtube = Self.verifiedYouTubeID(e)
+            let fp = processed ? "\(e.transcript.count)|\(e.chapters.count)|\(e.cuts.count)|\(e.analysisFingerprint ?? "")" : "-"
+            let fingerprint = youtube.map { fp + "|yt:" + $0 } ?? fp
+            guard published[key]?.fingerprint != fingerprint else { continue }
             let adTitles = ["ad", "ads", "sponsor"]
             let chapters = e.chapters.sorted { $0.start < $1.start }.filter { c in
                 let t = c.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return !adTitles.contains(t) && !t.hasPrefix("sponsor:") && !t.hasPrefix("advertisement")
             }
-            let extras = SyncExtras(chapters: chapters.map { .init(start: $0.start, title: $0.title) },
-                                    transcript: e.transcript.map { .init(start: $0.start, end: $0.end, text: $0.text) },
-                                    skips: e.cuts.map { .init(start: $0.start, end: $0.end) },
-                                    updatedAt: Date())
+            // Until an episode is processed only its YouTube match is shared: chapters and cuts may still change.
+            let extras = SyncExtras(chapters: processed ? chapters.map { .init(start: $0.start, title: $0.title) } : [],
+                                    transcript: processed ? e.transcript.map { .init(start: $0.start, end: $0.end, text: $0.text) } : [],
+                                    skips: processed ? e.cuts.map { .init(start: $0.start, end: $0.end) } : [],
+                                    updatedAt: Date(),
+                                    youtube: youtube)
             do {
                 var request = URLRequest(url: SyncBox.extrasURL(for: code, episode: key))
                 request.httpMethod = "POST"
@@ -305,13 +310,22 @@ final class MacSync {
                 request.httpBody = Data(try SyncBox.seal(extras, code: code).utf8)
                 let (_, response) = try await session.data(for: request)
                 guard ((response as? HTTPURLResponse)?.statusCode ?? 0) < 300 else { break }
-                published[key] = .init(fingerprint: fp, at: extras.updatedAt)
+                published[key] = .init(fingerprint: fingerprint, at: extras.updatedAt)
                 uploads += 1
             } catch { break }
         }
         // Only what's still on this Mac stays advertised.
         let live = Set(keyed(library).map(\.key))
         state.extras = published.filter { live.contains($0.key) }
+    }
+
+    private static func hasProcessedExtras(_ e: Episode) -> Bool {
+        e.stage == .ready && (!e.transcript.isEmpty || !e.chapters.isEmpty || !e.cuts.isEmpty)
+    }
+
+    /// The official YouTube upload confirmed for this feed episode, if any.
+    nonisolated static func verifiedYouTubeID(_ e: Episode) -> String? {
+        e.youtubeMatchState == .matched ? e.youtubeID : nil
     }
 
     private static func fingerprint(position: Double, played: Bool) -> String {

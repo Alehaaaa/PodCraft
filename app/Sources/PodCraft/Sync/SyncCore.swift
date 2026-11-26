@@ -91,6 +91,9 @@ struct SyncExtras: Codable, Equatable {
     /// Sponsor reads and other segments to skip.
     var skips: [Span]
     var updatedAt: Date
+    /// The episode's verified upload on the show's official YouTube channel (a video id), so phones can switch to
+    /// the video. Older Macs don't send it.
+    var youtube: String? = nil
 }
 
 struct SyncChannel: Codable {
