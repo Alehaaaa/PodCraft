@@ -19,6 +19,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "1.8",
+          "buildVersion": "202611261602",
+          "date": "2026-11-26",
+          "localizedDescription": "iPhone 1.8: YouTube episodes keep playing in the background",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/PodCraft/main/altstore/PodCraft-1.8-202611261602.ipa",
+          "size": 7383385,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "1.7",
           "buildVersion": "202611261344",
           "date": "2026-11-26",
