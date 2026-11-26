@@ -36,6 +36,8 @@ final class AudioPlayer {
     /// Sleep timer: pauses at this time, or at the end of the current chapter.
     private(set) var sleepAt: Date?
     private(set) var sleepAtChapterEnd = false
+    /// Stops when this episode ends instead of going on to Up Next.
+    private(set) var sleepAtEpisodeEnd = false
     /// Shown briefly after a sponsor read is skipped.
     private(set) var skippedSponsorAt: Date?
     /// A sponsor span the listener moved into on purpose plays through.
@@ -43,12 +45,20 @@ final class AudioPlayer {
 
     func setSleepTimer(minutes: Int?) {
         sleepAtChapterEnd = false
+        sleepAtEpisodeEnd = false
         sleepAt = minutes.map { Date().addingTimeInterval(Double($0) * 60) }
     }
 
     func sleepAtEndOfChapter() {
         sleepAt = nil
+        sleepAtEpisodeEnd = false
         sleepAtChapterEnd = true
+    }
+
+    func sleepAtEndOfEpisode() {
+        sleepAt = nil
+        sleepAtChapterEnd = false
+        sleepAtEpisodeEnd = true
     }
 
     var sleepRemaining: TimeInterval? { sleepAt.map { max(0, $0.timeIntervalSinceNow) } }
@@ -154,7 +164,8 @@ final class AudioPlayer {
                 self.store?.report(e)
                 self.position = 0
                 self.updateNowPlaying()
-                // Carry on with Up Next.
+                // Carry on with Up Next, unless the sleep timer was set for the end of this episode.
+                if self.sleepAtEpisodeEnd { self.sleepAtEpisodeEnd = false; return }
                 if let next = self.store?.popQueue() { self.play(next) }
             }
         }

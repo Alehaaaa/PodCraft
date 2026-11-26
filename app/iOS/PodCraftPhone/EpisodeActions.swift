@@ -118,9 +118,12 @@ struct HorizontalPan: UIGestureRecognizerRepresentable {
 
 /// What a long press on an episode offers, wherever it's shown: play, Up Next, played, share.
 struct EpisodeMenu: View {
+    @Environment(Router.self) private var router
     let episode: RemoteEpisode
     let store: Store
     let player: AudioPlayer
+    /// Offer Go to Show (not on the show's own page).
+    var goToShow = true
 
     var body: some View {
         let isCurrent = player.episode?.id == episode.id
@@ -153,6 +156,11 @@ struct EpisodeMenu: View {
             DownloadMenuItems(episode: episode)
             ShareLink(item: episode.media, subject: Text(episode.title)) {
                 Label("Share Episode", systemImage: "square.and.arrow.up")
+            }
+        }
+        if goToShow, let show = store.show(episode.showID) {
+            Section {
+                Button("Go to Show", systemImage: "square.stack") { router.open(show, player: player) }
             }
         }
     }
