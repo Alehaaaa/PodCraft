@@ -270,6 +270,8 @@ struct SettingsView: View {
                     Text("With Sync on, episodes PodCraft on your Mac has processed come with their transcript and chapters, and their sponsor reads are skipped — even when this iPhone streams them straight from the show.")
                 }
 
+                DownloadsSettingsSection()
+
                 Section {
                     Button("Check for Updates") { Task { result = await updater.check(server: updateServer) } }
                 } header: {

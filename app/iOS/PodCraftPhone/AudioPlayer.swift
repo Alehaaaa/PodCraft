@@ -60,6 +60,7 @@ final class AudioPlayer {
     // MARK: Playing
 
     func play(_ e: RemoteEpisode) {
+        store?.dequeue(e.id)
         if episode?.id == e.id { if !isPlaying { resume() }; return }
         saveProgress(report: true)
         stopObserving()
@@ -70,7 +71,8 @@ final class AudioPlayer {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: e.isVideo ? .moviePlayback : .spokenAudio, policy: .longFormAudio)
         try? session.setActive(true)
-        let item = AVPlayerItem(url: e.media)
+        // A downloaded episode plays from the phone, with no connection needed.
+        let item = AVPlayerItem(url: Downloads.shared.localURL(for: e) ?? e.media)
         item.preferredForwardBufferDuration = 30
         let p = AVPlayer(playerItem: item)
         p.automaticallyWaitsToMinimizeStalling = true
@@ -150,7 +152,10 @@ final class AudioPlayer {
                 self.isPlaying = false
                 self.store?.save(position: 0, for: e, played: true)
                 self.store?.report(e)
+                self.position = 0
                 self.updateNowPlaying()
+                // Carry on with Up Next.
+                if let next = self.store?.popQueue() { self.play(next) }
             }
         }
     }
