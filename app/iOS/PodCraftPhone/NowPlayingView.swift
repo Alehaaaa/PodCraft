@@ -62,6 +62,11 @@ struct NowPlayingView: View {
     @State private var scrubbing: Double?
     /// The episode's YouTube upload, while it plays in place of the audio.
     @State private var video: YouTubeVideo?
+    /// Whether the video was playing as the app started to leave the screen (iOS may pause it before it's gone).
+    @State private var videoWasPlaying = false
+    /// The video handed over to the audio when the app went to the background, to bring back on return.
+    @State private var videoInBackground: String?
+    @Environment(\.scenePhase) private var scenePhase
     /// The last video time copied to the audio player, to tell it from a seek made elsewhere (chapters, transcript).
     @State private var mirrored: Double?
     @Environment(\.openURL) private var openURL
@@ -98,7 +103,8 @@ struct NowPlayingView: View {
             .onChange(of: player.isPlaying) { _, playing in if playing && video != nil { listen(resume: false) } }
             .onChange(of: video?.time) { _, t in mirror(t) }
             .onChange(of: player.position) { _, t in followSeek(t) }
-            .onDisappear { listen(resume: false) }
+            .onDisappear { listen(resume: true) }
+            .onChange(of: scenePhase) { _, phase in sceneChanged(phase, e) }
             .task(id: "youtube|\(e.id)") {
                 // Give the Mac's answer (through Sync) a moment to arrive; otherwise look on YouTube from the phone.
                 try? await Task.sleep(for: .seconds(2))
@@ -395,6 +401,28 @@ struct NowPlayingView: View {
         mirrored = nil
         player.seek(to: t)
         if resume && wasPlaying { player.resume() }
+    }
+
+    /// A web video can't play in the background, so the episode carries on as audio from the same moment (with the
+    /// Lock Screen controls), and the video comes back when the app does, if the audio is still playing.
+    private func sceneChanged(_ phase: ScenePhase, _ e: RemoteEpisode) {
+        switch phase {
+        case .inactive:
+            if let video { videoWasPlaying = video.isPlaying }
+        case .background:
+            guard let v = video else { return }
+            let playing = videoWasPlaying || v.isPlaying
+            listen(resume: false)
+            if playing {
+                player.resume()
+                videoInBackground = v.videoID
+            }
+        case .active:
+            guard let id = videoInBackground else { return }
+            videoInBackground = nil
+            if video == nil, player.isPlaying, store.youtubeID(for: e) == id { watch(id) }
+        @unknown default: break
+        }
     }
 
     /// Another episode started: the video belonged to the one before.
