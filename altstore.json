@@ -19,6 +19,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "2.0",
+          "buildVersion": "202611270615",
+          "date": "2026-11-27",
+          "localizedDescription": "iPhone 2.0: YouTube keeps playing in the background, only the picture shows, Picture in Picture",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/PodCraft/main/altstore/PodCraft-2.0-202611270615.ipa",
+          "size": 7423864,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "1.9",
           "buildVersion": "202611261605",
           "date": "2026-11-26",
