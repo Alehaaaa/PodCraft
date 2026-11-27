@@ -62,10 +62,8 @@ struct NowPlayingView: View {
     @State private var scrubbing: Double?
     /// The episode's YouTube upload, while it plays in place of the audio.
     @State private var video: YouTubeVideo?
-    /// Whether the video was playing as the app started to leave the screen (iOS may pause it before it's gone).
-    @State private var videoWasPlaying = false
-    /// The video handed over to the audio when the app went to the background, to bring back on return.
-    @State private var videoInBackground: String?
+    /// The app is in the background and the audio leads; the video (paused by iOS) catches up when the app returns.
+    @State private var audioLeads = false
     @Environment(\.scenePhase) private var scenePhase
     /// The last video time copied to the audio player, to tell it from a seek made elsewhere (chapters, transcript).
     @State private var mirrored: Double?
@@ -100,11 +98,19 @@ struct NowPlayingView: View {
             .background(backdrop(e))
             .overlay(alignment: .top) { sponsorNotice }
             .onChange(of: e.id) { closeVideo() }
-            .onChange(of: player.isPlaying) { _, playing in if playing && video != nil { listen(resume: false) } }
+            .onChange(of: player.isPlaying) { _, playing in audioPlayingChanged(playing) }
+            .onChange(of: video?.isPlaying) { _, playing in videoPlayingChanged(playing) }
             .onChange(of: video?.time) { _, t in mirror(t) }
             .onChange(of: player.position) { _, t in followSeek(t) }
             .onDisappear { listen(resume: true) }
             .onChange(of: scenePhase) { _, phase in sceneChanged(phase, e) }
+            // The app's own notices too: a sheet's scene phase can lag behind the app's.
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+                sceneChanged(.background, e)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                sceneChanged(.active, e)
+            }
             .task(id: "youtube|\(e.id)") {
                 // Give the Mac's answer (through Sync) a moment to arrive; otherwise look on YouTube from the phone.
                 try? await Task.sleep(for: .seconds(2))
@@ -367,6 +373,21 @@ struct NowPlayingView: View {
             }
             .padding(3)
             .background(.ultraThinMaterial, in: Capsule())
+            .overlay(alignment: .trailing) {
+                if let video, video.canPictureInPicture {
+                    Button {
+                        if video.isInPictureInPicture { video.stopPictureInPicture() } else { video.startPictureInPicture() }
+                    } label: {
+                        Image(systemName: video.isInPictureInPicture ? "pip.exit" : "pip.enter")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 40, height: 40)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .offset(x: 52)
+                    .accessibilityLabel(video.isInPictureInPicture ? "Exit Picture in Picture" : "Picture in Picture")
+                }
+            }
         }
     }
 
@@ -383,10 +404,12 @@ struct NowPlayingView: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
+    /// The video takes over the picture; the audio keeps playing with it, silent, ready to take over.
     private func watch(_ id: String) {
         guard video == nil else { return }
-        player.pause()
         mirrored = player.position
+        audioLeads = false
+        player.muteForVideo(true)
         withAnimation(.spring(duration: 0.35)) {
             video = YouTubeVideo(videoID: id, start: player.position, rate: player.rate)
         }
@@ -399,30 +422,48 @@ struct NowPlayingView: View {
         v.stop()
         withAnimation(.spring(duration: 0.35)) { video = nil }
         mirrored = nil
-        player.seek(to: t)
-        if resume && wasPlaying { player.resume() }
+        audioLeads = false
+        player.muteForVideo(false)
+        if !audioLeadsNow(t) { player.seek(to: t) }
+        if resume && wasPlaying { if !player.isPlaying { player.resume() } } else if player.isPlaying { player.pause() }
     }
 
-    /// A web video can't play in the background, so the episode carries on as audio from the same moment (with the
-    /// Lock Screen controls), and the video comes back when the app does, if the audio is still playing.
+    /// Whether the audio is already at the video's moment (a seek would only make it stop to load again).
+    private func audioLeadsNow(_ t: Double) -> Bool { abs(player.position - t) < 1.5 }
+
+    /// iOS pauses a web video when the app leaves the screen, unless it floats in Picture in Picture. The audio has
+    /// been playing with it all along, silent, so it simply becomes audible: nothing has to start in the background.
+    /// When the app comes back, the video picks up from where the audio got to.
     private func sceneChanged(_ phase: ScenePhase, _ e: RemoteEpisode) {
+        guard let v = video else { return }
         switch phase {
-        case .inactive:
-            if let video { videoWasPlaying = video.isPlaying }
         case .background:
-            guard let v = video else { return }
-            let playing = videoWasPlaying || v.isPlaying
-            listen(resume: false)
-            if playing {
-                player.resume()
-                videoInBackground = v.videoID
-            }
+            guard !v.isInPictureInPicture, !audioLeads else { return }
+            audioLeads = true
+            player.muteForVideo(false)
+            if !audioLeadsNow(v.time) { player.seek(to: v.time) }
         case .active:
-            guard let id = videoInBackground else { return }
-            videoInBackground = nil
-            if video == nil, player.isPlaying, store.youtubeID(for: e) == id { watch(id) }
-        @unknown default: break
+            guard audioLeads else { return }
+            audioLeads = false
+            mirrored = player.position
+            v.seek(to: player.position)
+            if player.isPlaying { v.play() } else { v.pause() }
+            player.muteForVideo(true)
+        default: break
         }
+    }
+
+    /// Play and pause from the Lock Screen, headphones or the sleep timer reach the video too.
+    private func audioPlayingChanged(_ playing: Bool) {
+        guard let video, !audioLeads, video.isPlaying != playing else { return }
+        if playing { video.play() } else { video.pause() }
+    }
+
+    /// The video played or paused (from PodCraft's button, or the Picture in Picture window): the silent audio follows.
+    private func videoPlayingChanged(_ playing: Bool?) {
+        guard let video, let playing, !audioLeads, UIApplication.shared.applicationState == .active || video.isInPictureInPicture else { return }
+        guard playing != player.isPlaying, !video.ended else { return }
+        if playing { player.resume() } else { player.pause() }
     }
 
     /// Another episode started: the video belonged to the one before.
@@ -430,6 +471,8 @@ struct NowPlayingView: View {
         video?.stop()
         video = nil
         mirrored = nil
+        audioLeads = false
+        player.muteForVideo(false)
     }
 
     private func seek(to t: Double) {
@@ -442,14 +485,15 @@ struct NowPlayingView: View {
 
     /// Keeps the paused audio where the video is, so chapters, the transcript and saved progress follow along.
     private func mirror(_ t: Double?) {
-        guard let t, video != nil, abs(t - player.position) >= 1 else { return }
+        // A playing audio drifts a little between the two clocks' ticks; only a real gap is worth a seek.
+        guard let t, video != nil, !audioLeads, abs(t - player.position) >= (player.isPlaying ? 2.5 : 1) else { return }
         player.seek(to: t)
         mirrored = player.position
     }
 
     /// A chapter or transcript line tapped while the video plays moves the video.
     private func followSeek(_ t: Double) {
-        guard let video, let mirrored, abs(t - mirrored) > 1.5 else { return }
+        guard let video, !audioLeads, let mirrored, abs(t - mirrored) > 1.5, abs(t - video.time) > 4 else { return }
         self.mirrored = t
         video.seek(to: t)
     }

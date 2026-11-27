@@ -15,6 +15,9 @@ final class AudioPlayer {
     /// Playback speed, kept by the Store so Sync can share it.
     var rate: Float { store?.rate ?? 1 }
     private(set) var isBuffering = false
+    /// The episode's YouTube video is on screen: the audio keeps playing alongside it, silent, so that iOS keeps
+    /// PodCraft's audio going when the app leaves the screen and the audio can take over from the same moment.
+    private(set) var isMutedForVideo = false
     var showNowPlaying = false
 
     /// The AVPlayer, for the video picture.
@@ -85,6 +88,7 @@ final class AudioPlayer {
         let item = AVPlayerItem(url: Downloads.shared.localURL(for: e) ?? e.media)
         item.preferredForwardBufferDuration = 30
         let p = AVPlayer(playerItem: item)
+        isMutedForVideo = false
         p.automaticallyWaitsToMinimizeStalling = true
         player = p
         observe(p, item: item)
@@ -99,9 +103,27 @@ final class AudioPlayer {
 
     func togglePlay() { isPlaying ? pause() : resume() }
 
+    /// Silences the audio while the YouTube video plays the episode, or brings it back.
+    func muteForVideo(_ muted: Bool) {
+        isMutedForVideo = muted
+        player?.isMuted = muted
+        if !muted { claimAudioSession() }
+    }
+
+    /// The web video changes the app's audio session as it plays and stops (to "ambient" when it's paused, which
+    /// can't play in the background): set it back to playback, so the episode goes on with the app closed.
+    func claimAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        let mode: AVAudioSession.Mode = episode?.isVideo == true ? .moviePlayback : .spokenAudio
+        if session.category != .playback || session.mode != mode || session.routeSharingPolicy != .longFormAudio {
+            try? session.setCategory(.playback, mode: mode, policy: .longFormAudio)
+        }
+        try? session.setActive(true)
+    }
+
     func resume() {
         guard let player else { return }
-        try? AVAudioSession.sharedInstance().setActive(true)
+        claimAudioSession()
         player.playImmediately(atRate: rate)
         isPlaying = true
         updateNowPlaying()
@@ -152,6 +174,7 @@ final class AudioPlayer {
                 self.position = t.seconds.isFinite ? t.seconds : self.position
                 if let d = p.currentItem?.duration.seconds, d.isFinite, d > 0 { self.duration = d }
                 self.isBuffering = p.timeControlStatus == .waitingToPlayAtSpecifiedRate
+                if !self.isMutedForVideo, AVAudioSession.sharedInstance().category != .playback { self.claimAudioSession() }
                 self.saveProgress(report: Date().timeIntervalSince(self.lastReport) > 15)
                 self.checkSponsorsAndSleep()
             }
